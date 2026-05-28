@@ -57,11 +57,42 @@ Generated output goes to `bin`, `obj`, or `dist` and is intentionally ignored by
 
 - Windows
 - EuroScope installed
-- Visual Studio 2026/18 with C++ desktop tools
-- .NET SDK capable of building `net481`
-- vaSys installed if you want to build against local vaSys-compatible references during development
+- For release installs: no build tools are required.
+- For local builds: Visual Studio 2026/18 with C++ desktop tools and a .NET SDK capable of building `net481`.
+- vaSys installed if you want to build against local vaSys-compatible references during development.
 
 The native plugin is built as Win32/x86 because EuroScope is a 32-bit application.
+
+## Install From Release
+
+Download the latest `OzStripsEuroScope-*.zip` release and extract it to a EuroScope plugin folder.
+
+Example file structure:
+
+```text
+C:\Program Files (x86)\EuroScope\VATNZ-SKYLINE_2412\Plugins\OzStripsEuroScope\
+  OzStripsEuroScope.dll
+  OzStripsEuroScope.Helper.exe
+  OzStripsEuroScope.VatSysShim.dll
+  GUI.Shared.dll
+  GUI.Connector.dll
+  AerodromeSettings.xml
+  Strip.xml
+  AutoFill\
+    NZAA.yml
+  x86\
+    libSkiaSharp.dll
+```
+
+Then in EuroScope:
+
+1. Open **Other SET**.
+2. Open **Plug-ins**.
+3. Load `OzStripsEuroScope.dll`.
+4. Connect to the network or simulator.
+5. Type `.ozstrips`.
+
+If you use a different EuroScope package/profile, keep the same `Plugins\OzStripsEuroScope` folder structure inside that package.
 
 ## Build
 
@@ -173,6 +204,29 @@ To do the same locally:
 ```
 
 Do not blindly copy `vendor/OzStrips/GUI` over `src/OzStripsEuroScope.OzStripsGui`. The EuroScope copy contains bridge-specific adaptations for the named-pipe helper, EuroScope SID/STAR formats, runway handling, and EuroScope flight plan writes.
+
+## Running GitHub Workflows
+
+1. Open the repo on GitHub.
+2. Go to **Actions**.
+3. Select a workflow:
+   - **Sync VATNZ OzStrips vendor** updates `vendor/OzStrips`.
+   - **Release EuroScope build** creates or updates a release zip.
+4. Click **Run workflow**.
+5. Choose the branch, usually `main`.
+6. Fill in the tag/ref if GitHub asks.
+7. Click the green **Run workflow** button.
+
+For normal releases, pushing a tag is simpler:
+
+```powershell
+git checkout main
+git pull
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+That tag starts the release workflow automatically.
 
 ## Credits
 

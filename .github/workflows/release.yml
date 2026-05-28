@@ -1,0 +1,83 @@
+name: Release EuroScope build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Tag name to release
+        required: true
+        default: v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Resolve release tag
+        id: vars
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "tag=${{ github.event.inputs.tag_name }}" >> $env:GITHUB_OUTPUT
+          } else {
+            "tag=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build helper
+        shell: pwsh
+        run: dotnet build .\src\OzStripsEuroScope.OzStripsGui\OzStripsEuroScope.OzStripsGui.csproj -c Release
+
+      - name: Build EuroScope plugin
+        shell: pwsh
+        run: msbuild .\src\OzStripsEuroScope.Plugin\OzStripsEuroScope.Plugin.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
+
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP "OzStripsEuroScope"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          Copy-Item ".\src\OzStripsEuroScope.Plugin\bin\Win32\Release\OzStripsEuroScope.dll" $stage -Force
+          Copy-Item ".\src\OzStripsEuroScope.Plugin\bin\Win32\Release\OzStripsEuroScope.pdb" $stage -Force -ErrorAction SilentlyContinue
+          Get-ChildItem ".\src\OzStripsEuroScope.OzStripsGui\bin\Release" -Force | Copy-Item -Destination $stage -Recurse -Force
+
+          $zip = Join-Path $env:RUNNER_TEMP "OzStripsEuroScope-${{ steps.vars.outputs.tag }}.zip"
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+        id: package
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.vars.outputs.tag }}
+          name: "OzStrips EuroScope ${{ steps.vars.outputs.tag }}"
+          artifacts: ${{ steps.package.outputs.zip }}
+          allowUpdates: true
+          replacesArtifacts: true
+          body: |
+            OzStrips EuroScope bridge release.
+
+            Install by extracting the zip to a EuroScope plugins folder such as:
+
+            `C:\Program Files (x86)\EuroScope\VATNZ-SKYLINE_2412\Plugins\OzStripsEuroScope`
+
+            Then load `OzStripsEuroScope.dll` in EuroScope and type `.ozstrips`.
