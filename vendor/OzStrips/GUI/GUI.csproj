@@ -1,0 +1,135 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFrameworks>net481</TargetFrameworks>
+        <UseWindowsForms>true</UseWindowsForms>
+        <UseWPF>true</UseWPF>
+        <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+        <EmbeddedResourceUseDependentUponConvention>true</EmbeddedResourceUseDependentUponConvention>
+        <RootNamespace>MaxRumsey.OzStripsPlugin.GUI</RootNamespace>
+        <ApplicationIcon>ozstrips.ico</ApplicationIcon>
+        <CefSharpBuildAction>Content</CefSharpBuildAction>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <BaseOutputPath>$(MSBuildProgramFiles32)\vatSys\bin\Plugins\</BaseOutputPath>
+        <OutputPath>$(HOMEPATH)\Documents\vatSys Files\Profiles\Australia\Plugins\OzStrips\</OutputPath>
+        <PlatformTarget>x86</PlatformTarget>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+        <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net472|AnyCPU'">
+      <Optimize>False</Optimize>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net472|x86'">
+      <Optimize>False</Optimize>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net472|AnyCPU'">
+      <Optimize>False</Optimize>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net472|x86'">
+      <Optimize>False</Optimize>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net481|AnyCPU'">
+      <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
+      <NoWarn>1701;1702;CA1502;SA1201;SA1202;SA1204;SA1214;CA1506</NoWarn>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net481|AnyCPU'">
+      <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
+      <NoWarn>1701;1702;CA1502;SA1201;SA1202;SA1204;SA1214;CA1506</NoWarn>
+    </PropertyGroup>
+  
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0-rc.2.24474.3" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+        <PackageReference Include="SkiaSharp" Version="3.0.0-preview.4.1" />
+        <PackageReference Include="SkiaSharp.Views.WindowsForms" Version="3.0.0-preview.4.1" />
+        <PackageReference Include="System.Resources.Extensions" Version="9.0.0" />
+        <PackageReference Include="System.Text.Json" Version="9.0.0-rc.2.24473.5" />
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Update="CDMStatsRenderController.cs">
+          <SubType>Component</SubType>
+        </Compile>
+        <Compile Update="BayRenderController.cs">
+          <SubType>Component</SubType>
+        </Compile>
+        <Compile Update="Controls\DebugSetATIS.cs">
+          <SubType>UserControl</SubType>
+        </Compile>
+        <Compile Update="Controls\QuickSearch.cs">
+          <SubType>UserControl</SubType>
+        </Compile>
+        <Compile Update="Controls\NoScrollPanel.cs">
+          <SubType>Component</SubType>
+        </Compile>
+        <Compile Update="Controls\PDCControl.cs">
+          <SubType>UserControl</SubType>
+        </Compile>
+        <Compile Update="Controls\SettingsWindowControl.cs">
+          <SubType>UserControl</SubType>
+        </Compile>
+        <Compile Update="OzStripsConfig.Designer.cs">
+            <DesignTime>True</DesignTime>
+            <AutoGen>True</AutoGen>
+            <DependentUpon>Config.resx</DependentUpon>
+        </Compile>
+        <Compile Update="Properties\OzStripsSettings.Designer.cs">
+          <DesignTimeSharedInput>True</DesignTimeSharedInput>
+          <AutoGen>True</AutoGen>
+          <DependentUpon>OzStripsSettings.settings</DependentUpon>
+        </Compile>
+    </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource Update="OzStripsConfig.resx">
+            <Generator>ResXFileCodeGenerator</Generator>
+            <LastGenOutput>Config.Designer.cs</LastGenOutput>
+        </EmbeddedResource>
+    </ItemGroup>
+  <ItemGroup>
+    <Content Include="ozstrips.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GUI.Connector\GUI.Connector.csproj" />
+    <ProjectReference Include="..\GUI.Shared\GUI.Shared.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+    <Reference Include="$(VatSysDir)\bin\vatSys.exe ">
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Update="OzStripsConfig.Designer.cs">
+            <DesignTime>True</DesignTime>
+            <AutoGen>True</AutoGen>
+            <DependentUpon>OzStripsConfig.resx</DependentUpon>
+        </Compile>
+    </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource Update="OzStripsConfig.resx">
+            <Generator>PublicResXFileCodeGenerator</Generator>
+            <LastGenOutput>OzStripsConfig.Designer.cs</LastGenOutput>
+            <CustomToolNamespace>MaxRumsey.OzStripsPlugin.GUI</CustomToolNamespace>
+        </EmbeddedResource>
+    </ItemGroup>
+    <ItemGroup>
+      <None Update="AerodromeSettings.xml">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="AutoFill\**\*.yml">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="libSkiaSharp.adll">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="libSkiaSharp.dylib">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Properties\OzStripsSettings.settings">
+        <Generator>SettingsSingleFileGenerator</Generator>
+        <LastGenOutput>OzStripsSettings.Designer.cs</LastGenOutput>
+      </None>
+      <None Update="Strip.xml">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None> 
+    </ItemGroup>
+</Project>

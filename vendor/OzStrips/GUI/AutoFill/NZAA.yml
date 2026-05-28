@@ -1,0 +1,161 @@
+# Auckland autofill.
+# Direct-to-RFL rules use 590; OzStrips caps CFL to the filed RFL when applying the rule.
+- assign_dep_rwy: "true"
+- departures: ["129.600", "124.300", "123.900"]
+- CFL: "590"
+
+# Default preferences from the NZAA departure notes.
+- if:
+    runway: ["05R"]
+    jet: "true"
+  SID: '#AVNA(R)?\dQ'
+- if:
+    runway: ["05R"]
+    jet: "false"
+  SID: '#REKI(S)?\dQ'
+- if:
+    runway: ["05R"]
+    WTC: ["H", "J"]
+  SID: '#POLI(S)?\dQ'
+- if:
+    runway: ["23L"]
+    jet: "true"
+  SID: '#LEVR(A)?\dP'
+- if:
+    runway: ["23L"]
+    jet: "false"
+  SID: '#STEA(L)?\dP'
+
+# 23L route/transition selection.
+- if:
+    runway: ["23L"]
+    waypoint: ["IGBAT", "KAPAI", "ORIDI", "TULMI"]
+    jet: "true"
+  SID: '#LEVR(A)?\dP'
+  CFL: "590"
+- if:
+    runway: ["23L"]
+    waypoint: ["IGBAT", "ORIDI", "TULMI"]
+    jet: "false"
+  SID: '#STEA(L)?\dP'
+  CFL: "590"
+- if:
+    runway: ["23L"]
+    waypoint: ["NUTRA"]
+    jet: "true"
+  SID: '#LENG(U)?\dP'
+  CFL: "590"
+- if:
+    runway: ["23L"]
+    waypoint: ["NUTRA"]
+    jet: "false"
+  SID: '#STEA(L)?\dP'
+  CFL: "590"
+- if:
+    runway: ["23L"]
+    waypoint: ["DUGAN", "ELNOS", "SALAG"]
+  SID: '#BELR(A)?\dP'
+  CFL: "590"
+- if:
+    runway: ["23L"]
+    waypoint: ["AGEDU", "AKLOM", "DABAS", "IBESO", "IDSEM", "OLBEX"]
+  SID: '#FIRT(H)?\dP'
+  CFL: "590"
+- if:
+    runway: ["23L"]
+    waypoint: ["AGREX", "ELPAK", "KALAG", "TARIB"]
+  SID: '#MEMO(R)?\dP'
+  CFL: "590"
+- if:
+    runway: ["23L"]
+    waypoint: ["BOVRU", "HOOKS", "KAWAU", "KOPPA", "KYPRA", "OTATA", "PUHOI", "WP"]
+  SID: '#ONOD(A)?\dP'
+  CFL: "590"
+- if:
+    runway: ["23L"]
+    waypoint: ["GULUT", "MADEP", "PEBLU", "UPLAR", "VELMO"]
+  SID: '#OSRA(P)?\dP'
+- if:
+    runway: ["23L"]
+    waypoint: ["GULUT", "MADEP", "PEBLU", "UPLAR", "VELMO"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#OSRA(P)?\dP'
+  CFL: "250"
+
+# 05R domestic and transition selection.
+- if:
+    runway: ["05R"]
+    waypoint: ["IGBAT", "KAPAI", "NUTRA"]
+    jet: "true"
+  SID: '#AVNA(R)?\dQ'
+  CFL: "590"
+- if:
+    runway: ["05R"]
+    waypoint: ["IGBAT", "KAPAI", "NUTRA", "ORIDI", "TULMI"]
+    jet: "false"
+  SID: '#REKI(S)?\dQ'
+  CFL: "590"
+- if:
+    runway: ["05R"]
+    waypoint: ["IGBAT", "KAPAI", "ORIDI", "TULMI"]
+    WTC: ["H", "J"]
+  SID: '#POLI(S)?\dQ'
+  CFL: "590"
+- if:
+    runway: ["05R"]
+    waypoint: ["DUGAN", "ELNOS"]
+  SID: '#KADM(A)?\dQ'
+  CFL: "590"
+- if:
+    runway: ["05R"]
+    waypoint: ["SALAG"]
+  SID: '#BELR(A)?\dQ'
+  CFL: "590"
+- if:
+    runway: ["05R"]
+    waypoint: ["AGREX", "ELPAK", "KALAG", "TARIB"]
+  SID: '#RAXI(N)?\dQ'
+  CFL: "590"
+- if:
+    runway: ["05R"]
+    waypoint: ["AGEDU", "AKLOM", "DABAS", "IBESO", "IDSEM", "OLBEX"]
+  SID: '#SATL(A)?\dQ'
+  CFL: "590"
+- if:
+    runway: ["05R"]
+    waypoint: ["BOVRU", "HOOKS", "KAWAU", "PUHOI"]
+  SID: '#IDUG(U)?\dQ'
+  CFL: "590"
+
+# International boundary rules. These intentionally leave RFL alone and assign only CFL 250.
+- if:
+    runway: ["05R"]
+    waypoint: ["PEBLU", "VELMO"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#AVNA(R)?\dQ'
+  CFL: "250"
+- if:
+    runway: ["05R"]
+    waypoint: ["PEBLU", "VELMO"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+    WTC: ["H", "J"]
+  SID: '#AKEL(A)?\dQ'
+  CFL: "250"
+- if:
+    runway: ["05R"]
+    waypoint: ["GULUT"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#AKEL(A)?\dQ'
+  CFL: "250"
+- if:
+    runway: ["05R"]
+    waypoint: ["MADEP", "UPLAR"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#BATO(S)?\dQ'
+  CFL: "250"
+- if:
+    runway: ["05R"]
+    waypoint: ["TULMI"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#POLI(S)?\dQ'
+  CFL: "250"

@@ -1,0 +1,1546 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Globalization;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Windows.Forms.VisualStyles;
+using MaxRumsey.OzStripsPlugin.GUI.Controls;
+using MaxRumsey.OzStripsPlugin.GUI.DTO;
+using MaxRumsey.OzStripsPlugin.GUI.Properties;
+using MaxRumsey.OzStripsPlugin.GUI.Shared;
+using vatsys;
+
+using static vatsys.FDP2;
+
+namespace MaxRumsey.OzStripsPlugin.GUI;
+
+/// <summary>
+/// Responsible for strip logic, represents a Vatsys FDR.
+/// </summary>
+public sealed class Strip : IDisposable
+{
+    private static readonly Regex _headingRegex = new(@"H(\d{3})");
+    private static readonly Regex _firstWptLatLongRegex = new(@"^[^\d/]+$");
+    private static readonly Regex _sidRouteRegex = new(@"^[\w\d]+\/[\d]{2}\w?");
+    private static readonly Regex _gpscoordRegex = new(@"^[\d]+\w[\d]+\w");
+    private static readonly Regex _airwayRegex = new(@"^\w\d+");
+    private static readonly Regex _euroScopeSidRegex = new(@"^([A-Z]{4})[A-Z](\d[A-Z]).*$", RegexOptions.IgnoreCase);
+    private static readonly Regex _shortSidRegex = new(@"^([A-Z]{4}\d[A-Z]).*$", RegexOptions.IgnoreCase);
+    private static readonly Regex _sidProcedureRegex = new(@"^([A-Z]+)(\d[A-Z]).*$", RegexOptions.IgnoreCase);
+    private static readonly Regex _sidRunwayRegex = new(@"^(?<sid>[^/]+?)(?:/(?<runway>\d{2}[LCR]?))?$", RegexOptions.IgnoreCase);
+    private static readonly Dictionary<string, string> _knownSidPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        { "BELRA", "BELR" },
+        { "FIRTH", "FIRT" },
+        { "LEVER", "LEVR" },
+        { "LEVERA", "LEVR" },
+        { "MEMOP", "MEMO" },
+        { "ONODA", "ONOD" },
+    };
+
+    private readonly BayManager _bayManager;
+    private readonly SocketConn _socketConn;
+    private readonly SemaphoreSlim _routeFetchSemaphore = new(1, 1);
+    ////private readonly StripLayoutTypes StripType;
+
+    private bool _crossing;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Strip"/> class.
+    /// </summary>
+    /// <param name="fdr">The flight data record.</param>
+    /// <param name="bayManager">Gets or sets the bay manager.</param>
+    /// <param name="socketConn">The socket connection.</param>
+    public Strip(FDR fdr, BayManager bayManager, SocketConn socketConn)
+    {
+        FDR = fdr;
+        _bayManager = bayManager;
+        ParentAerodrome = bayManager.AerodromeName;
+        _socketConn = socketConn;
+        CurrentBay = StripBay.BAY_PREA;
+        if (StripType == StripType.ARRIVAL)
+        {
+            CurrentBay = StripBay.BAY_ARRIVAL;
+        }
+
+        OriginalAerodromePair = FDR.DepAirport + FDR.DesAirport;
+
+        Controller = new StripController(this);
+    }
+
+    /// <summary>
+    /// Gets or sets the take off time.
+    /// </summary>
+    public DateTime? TakeOffTime { get; set; }
+
+    /// <summary>
+    /// Gets the existing CDMResultDTO for this aircraft.
+    /// </summary>
+    /// If CDM not enabled, returns null.
+    public CDMResultDTO? CDMResult
+    {
+        get
+        {
+            return _bayManager.AerodromeState.CDMParameters?.Enabled == true ? _bayManager.AerodromeState.CDMResults.Find(x => x.Aircraft.Key.Matches(StripKey)) : null;
+        }
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether or not push is allowed according to CDM rules.
+    /// </summary>
+    public bool ReadyToPush
+    {
+        get
+        {
+            return CDMResult?.TSAT <= DateTime.Now.Add(TimeSpan.FromMinutes(1));
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the valid routes.
+    /// </summary>
+    public RouteDTO[]? ValidRoutes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the condensed route.
+    /// </summary>
+    public string? CondensedRoute { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets inhibited alerts.
+    /// </summary>
+    public Shared.AlertTypes InhibitedAlerts { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether or not a list of valid routes has been selected.
+    /// </summary>
+    public DateTime RequestedRoutes { get; set; } = DateTime.MaxValue;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether or not a list of valid routes has been compared to the current route.
+    /// </summary>
+    public bool ParsedRoutes { get; set; }
+
+    /// <summary>
+    /// Gets or sets a string containing the aerodrome pair that valid routes were fetched for.
+    /// </summary>
+    public string OriginalAerodromePair { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether or not an aircraft has filed a dodgy route.
+    /// </summary>
+    public bool DodgyRoute { get; set; }
+
+    /// <summary>
+    /// Gets the ICAO name of the aerodrome being controlled.
+    /// </summary>
+    public string ParentAerodrome { get; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether or not a Hoppies PDC has been sent.
+    /// </summary>
+    public bool PDCSent { get; set; }
+
+    /// <summary>
+    /// Gets the current server code.
+    /// </summary>
+    public ConnectionMetadataDTO.Servers Server
+    {
+        get
+        {
+            return _socketConn.Server;
+        }
+    }
+
+    /// <summary>
+    /// Gets possible departure frequencies for this strip.
+    /// </summary>
+    public string[] PossibleDepFreqs
+    {
+        get
+        {
+            return _bayManager.AutoAssigner?.DeterminePossibleDepartureFrequencies(this) ?? [];
+        }
+    }
+
+    /// <summary>
+    /// Gets the strip view controller.
+    /// </summary>
+    public StripController Controller { get; }
+
+    /// <summary>
+    /// Gets the flight data record.
+    /// </summary>
+    public FDR FDR { get; internal set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether or not the departure has been changed.
+    /// </summary>
+    public bool DepartureChanged { get; set; }
+
+    /// <summary>
+    /// Gets or sets the PDC flags.
+    /// </summary>
+    public PDCRequest.PDCFlags PDCFlags { get; set; }
+
+    /// <summary>
+    /// Gets or sets the current strip bay.
+    /// </summary>
+    public StripBay CurrentBay { get; set; }
+
+    /// <summary>
+    /// Gets or sets the current cock level.
+    /// </summary>
+    public int CockLevel { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether or not the strip is in crossing mode.
+    /// </summary>
+    public bool Crossing
+    {
+        get => _crossing;
+        set
+        {
+            _crossing = value;
+        }
+    }
+
+    /// <summary>
+    /// Gets the strip key.
+    /// </summary>
+    public StripKey StripKey
+    {
+        get
+        {
+            return new StripKey()
+            {
+                Callsign = FDR.Callsign,
+                VatsimID = string.Empty,
+                ADEP = FDR.DepAirport,
+                ADES = FDR.DesAirport,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Gets the default or original strip type, regardless of any overrides.
+    /// </summary>
+    public StripType DefaultStripType
+    {
+        get
+        {
+            if (FDR.DesAirport == _bayManager.AerodromeName && FDR.DepAirport == _bayManager.AerodromeName)
+            {
+                return StripType.LOCAL;
+            }
+
+            if (FDR.DesAirport == _bayManager.AerodromeName)
+            {
+                return StripType.ARRIVAL;
+            }
+
+            if (FDR.DepAirport == _bayManager.AerodromeName)
+            {
+                return StripType.DEPARTURE;
+            }
+
+            return StripType.UNKNOWN;
+        }
+    }
+
+    /// <summary>
+    /// Gets the arrival or departure type.
+    /// </summary>
+    public StripType StripType
+    {
+        get
+        {
+            var originalType = DefaultStripType;
+
+            if (originalType != StripType.LOCAL)
+            {
+                return originalType;
+            }
+            else
+            {
+                if (OverrideStripType == StripType.UNKNOWN)
+                {
+                    OverrideStripType = StripType.DEPARTURE;
+                }
+
+                return OverrideStripType;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets a value which when set will override the default arr/dep type.
+    /// </summary>
+    public StripType OverrideStripType { get; set; } = StripType.UNKNOWN;
+
+    /// <summary>
+    /// Gets or sets the CFL.
+    /// </summary>
+    public string CFL
+    {
+        get => FDR.CFLString ?? string.Empty;
+
+        set
+        {
+            if (Network.Me.IsRealATC || MainForm.IsDebug)
+            {
+                SetCFL(FDR, value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the clearance.
+    /// </summary>
+    public string CLX { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the set departure frequency.
+    /// </summary>
+    public string DepartureFrequency { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the remarks.
+    /// </summary>
+    public string Remark { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets he requested flight level.
+    /// </summary>
+    public string RFL
+    {
+        get
+        {
+            return (FDR.RFL / 100).ToString(CultureInfo.InvariantCulture).PadLeft(3, '0');
+        }
+    }
+
+    /// <summary>
+    /// Gets the squawk display text.
+    /// </summary>
+    public string DisplaySSR => IsDefaultSquawk ? "XXXX" : Convert.ToString(FDR.AssignedSSRCode, 8).PadLeft(4, '0');
+
+    /// <summary>
+    /// Gets a value indicating whether the strip has no discrete squawk assigned.
+    /// </summary>
+    public bool IsDefaultSquawk => FDR.AssignedSSRCode == -1 || Convert.ToString(FDR.AssignedSSRCode, 8).PadLeft(4, '0') == "2000";
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the strip is ready for departure.
+    /// </summary>
+    public bool Ready { get; set; }
+
+    /// <summary>
+    /// Gets or sets the gate.
+    /// </summary>
+    public string Gate { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the allocated bay.
+    /// </summary>
+    public string AllocatedBay { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the PDC request for this strip, if applicable.
+    /// </summary>
+    public PDCRequest? PDCRequest => _bayManager.AerodromeState.PDCRequests.FirstOrDefault(x => x.Callsign == FDR.Callsign);
+
+    /// <summary>
+    /// Gets or sets the heading.
+    /// </summary>
+    public string HDG
+    {
+        get
+        {
+            var hdgMatch = _headingRegex.Match(FDR.GlobalOpData);
+            return hdgMatch.Success ? hdgMatch.Value.Replace("H", string.Empty) : string.Empty;
+        }
+
+        set
+        {
+            if ((Network.Me.IsRealATC || MainForm.IsDebug) && !string.IsNullOrWhiteSpace(value))
+            {
+                SetGlobalOps(FDR, "H" + value);
+            }
+
+            /*
+             * Only blank GLOPs when a heading is in the GLOP.
+             */
+            else if ((Network.Me.IsRealATC || MainForm.IsDebug) && _headingRegex.Match(FDR.GlobalOpData).Success)
+            {
+                SetGlobalOps(FDR, string.Empty);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the current eobt time.
+    /// </summary>
+    public string Time
+    {
+        get
+        {
+            if (CDMResult is not null)
+            {
+                if (CDMResult.Aircraft.State != CDMState.ACTIVE)
+                {
+                    return string.Empty;
+                }
+
+                return CDMResult.TSAT.ToUniversalTime().ToString("HHmm", CultureInfo.InvariantCulture);
+            }
+
+            if (StripType == StripType.DEPARTURE && FDR.ATD == DateTime.MaxValue)
+            {
+                return FDR.ETD.ToString("HHmm", CultureInfo.InvariantCulture);
+            }
+
+            return StripType == StripType.DEPARTURE ?
+                FDR.ATD.ToString("HHmm", CultureInfo.InvariantCulture) :
+                string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the runway.
+    /// </summary>
+    public string RWY
+    {
+        get
+        {
+            var routeRunway = SidRunwayFromRoute().Runway;
+            if (!string.IsNullOrWhiteSpace(routeRunway))
+            {
+                return routeRunway;
+            }
+
+            var sidRunway = SidRunwayFromRaw(FDR.SID?.Name ?? string.Empty).Runway;
+            if (!string.IsNullOrWhiteSpace(sidRunway))
+            {
+                return sidRunway;
+            }
+
+            if ((StripType == StripType.DEPARTURE || StripType == StripType.LOCAL) && FDR.DepartureRunway != null)
+            {
+                return FDR.DepartureRunway.Name;
+            }
+
+            return StripType == StripType.ARRIVAL && FDR.ArrivalRunway != null ? FDR.ArrivalRunway.Name : string.Empty;
+        }
+
+        set
+        {
+            if (DefaultStripType == StripType.DEPARTURE || DefaultStripType == StripType.LOCAL)
+            {
+                var aerodrome = FDR.DepAirport;
+                var runways = Airspace2.GetRunways(aerodrome);
+                foreach (var runway in runways)
+                {
+                    if (runway.Name == value)
+                    {
+                        if (Network.Me.IsRealATC || MainForm.IsDebug)
+                        {
+                            SetDepartureRunway(FDR, runway);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the SID transition for the strip, if applicable.
+    /// </summary>
+    public string? SIDTransition
+    {
+        get
+        {
+            if (FDR.SID is null || FDR.SID.Transitions.Count == 0 || StripType != StripType.DEPARTURE)
+            {
+                return null;
+            }
+
+            var wpt = FirstWpt;
+
+            if (FDR.SID?.Transitions?.ContainsKey(wpt) == true)
+            {
+                return wpt;
+            }
+
+            return "RADAR";
+        }
+    }
+
+    /// <summary>
+    /// Gets the first element in the route.
+    /// Don't include first waypoint, and if going DCT, mark first element as DCT.
+    /// </summary>
+    public string FirstWpt
+    {
+        get
+        {
+            var aerodrome = FDR.DepAirport;
+            var firstWptUnsuitableMatches = new List<string> { aerodrome };
+
+            firstWptUnsuitableMatches.AddRange(Util.DifferingAerodromeWaypoints.Where(x => x.Key == aerodrome).Select(x => x.Value));
+            var wpt = string.Empty;
+
+            // Procedural SIDs
+            if (FDR.SID?.Name.Length > 3)
+            {
+                /*
+                 * Don't Match:
+                 * SID Names
+                 * DCTs
+                 * YMML/ ML/ TESATs etc
+                 */
+                wpt = FDR.RouteNoParse.Split(' ').ToList().Find(x => _firstWptLatLongRegex.IsMatch(x) && (x != "DCT") && !firstWptUnsuitableMatches.Where(unsuitMatch => unsuitMatch.Contains(x)).Any()) ?? "DCT";
+            }
+            else if (FDR.SID != null)
+            {
+                // Radar SIDs
+                /*
+                 * Don't Match:
+                 * YMML/ TESAT/ ML etc
+                 * GPS wpts (due to SY3 issue)
+                 */
+                wpt = FDR.ParsedRoute.Where(x => x.Type == FDR.ExtractedRoute.Segment.SegmentTypes.WAYPOINT && x.SIDSTARName.Length == 0 && _firstWptLatLongRegex.IsMatch(x.Intersection.Name)).ToList().Find(x => !firstWptUnsuitableMatches.Where(unsuitMatch => unsuitMatch.Contains(x.Intersection.Name)).Any())?.Intersection.Name ?? "DCT";
+            }
+            else
+            {
+                // Other routing (vfr).
+                /*
+                 * Don't Match:
+                 * YMML/ TESAT/ ML etc
+                 */
+                var intersection = FDR.ParsedRoute.Where(x => x.Type == FDR.ExtractedRoute.Segment.SegmentTypes.WAYPOINT && x.SIDSTARName.Length == 0).ToList().Find(x => !firstWptUnsuitableMatches.Where(unsuitMatch => unsuitMatch.Contains(x.Intersection.Name)).Any());
+
+                if (intersection is not null)
+                {
+                    // If latlong return fullname (will match regex);
+                    // ie don't return Albany for YABA.
+                    wpt = intersection.Intersection.FullName.Length > 0 && char.IsDigit(intersection.Intersection.FullName[0]) ? intersection.Intersection.FullName : intersection.Intersection.Name;
+                }
+                else
+                {
+                    // No intersection found, return DCT.
+                    wpt = "DCT";
+                }
+            }
+
+            if (_gpscoordRegex.IsMatch(wpt))
+            {
+                return "#GPS#";
+            }
+
+            return wpt;
+        }
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether a VFR aircraft has been given a SID.
+    /// </summary>
+    public bool VFRSIDAssigned
+    {
+        get
+        {
+            return FDR.FlightRules == "V" && !string.IsNullOrEmpty(FDR.SIDSTARString) && StripType != StripType.ARRIVAL;
+        }
+    }
+
+    /// <summary>
+    /// Gets the full route text in the route.
+    /// </summary>
+    public string Route
+    {
+        get
+        {
+            return FDR.Route;
+        }
+    }
+
+    /// <summary>
+    /// Gets the outbound radial.
+    /// </summary>
+    public int OutboundRadial
+    {
+        get
+        {
+            var aWpt = FDR.ParsedRoute.FirstOrDefault()?.Intersection;
+
+            // look for a waypoint like TESAT
+            Util.DifferingAerodromeWaypoints.TryGetValue(FDR.DepAirport, out var falseFlagWaypoint);
+
+            // Only match legit WPTs, non-airports, and non GPS / random coords.
+            var firstLegitWaypoint = FDR.ParsedRoute.FirstOrDefault(x => x.Type == FDR.ExtractedRoute.Segment.SegmentTypes.WAYPOINT && x.Intersection.Type != Airspace2.Intersection.Types.Airport && !x.Intersection.Name.Any(char.IsDigit) && x.Intersection.Name != falseFlagWaypoint)?.Intersection;
+            var bWpt = firstLegitWaypoint?.LatLong;
+            bWpt ??= Airspace2.GetAirport(FDR.DesAirport).LatLong;
+
+            if (FirstWpt is not "#GPS#" and not "DCT")
+            {
+                var intersection = Airspace2.GetIntersection(FirstWpt);
+                if (intersection is not null)
+                {
+                    bWpt = intersection.LatLong;
+                }
+            }
+
+            if (aWpt is null || bWpt is null)
+            {
+                return -1;
+            }
+
+            return (int)Conversions.CalculateTrack(aWpt.LatLong, bWpt);
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the SID.
+    /// </summary>
+    public string SID
+    {
+        get
+        {
+            var routeSid = SidRunwayFromRoute().Sid;
+            if (!string.IsNullOrWhiteSpace(routeSid))
+            {
+                return routeSid;
+            }
+
+            if (StripType != StripType.ARRIVAL && FDR.SID is not null)
+            {
+                return SidRunwayFromRaw(FDR.SID.Name).Sid;
+            }
+            else if (StripType != StripType.ARRIVAL)
+            {
+                return string.Empty;
+            }
+            else
+            {
+                return ">";
+            }
+        }
+
+        set
+        {
+            var found = false;
+            foreach (var possibleSID in FDR.DepartureRunway?.SIDs ?? [])
+            {
+                if (possibleSID.sidStar.Name == value)
+                {
+                    if (value == FDR.SIDSTARString)
+                    {
+                        return; // dont needlessly set sid
+                    }
+
+                    if (Network.Me.IsRealATC || MainForm.IsDebug)
+                    {
+                        SetSID(FDR, possibleSID.sidStar);
+                    }
+
+                    found = true;
+                }
+            }
+
+            if (!found)
+            {
+                Util.LogError(new("Attempted to set invalid SID"));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the SID formatted consistently across EuroScope and vatSys.
+    /// </summary>
+    public string DisplaySID
+    {
+        get
+        {
+            var sid = SID.Trim().ToUpperInvariant();
+            return FormatSIDForDisplay(sid);
+        }
+    }
+
+    private static string FormatSIDForDisplay(string sid)
+    {
+        sid = SidRunwayFromRaw(sid).Sid.Trim().ToUpperInvariant();
+
+        if (string.IsNullOrWhiteSpace(sid))
+        {
+            return string.Empty;
+        }
+
+        var procedureMatch = _sidProcedureRegex.Match(sid);
+        if (procedureMatch.Success)
+        {
+            var prefix = procedureMatch.Groups[1].Value;
+            var suffix = procedureMatch.Groups[2].Value;
+            if (_knownSidPrefixes.TryGetValue(prefix, out var knownPrefix))
+            {
+                return knownPrefix + suffix;
+            }
+        }
+
+        var euroScopeMatch = _euroScopeSidRegex.Match(sid);
+        if (euroScopeMatch.Success)
+        {
+            return euroScopeMatch.Groups[1].Value + euroScopeMatch.Groups[2].Value;
+        }
+
+        var shortMatch = _shortSidRegex.Match(sid);
+        if (shortMatch.Success)
+        {
+            return shortMatch.Groups[1].Value;
+        }
+
+        return sid;
+    }
+
+    private static (string Sid, string Runway) SidRunwayFromRaw(string value)
+    {
+        value = (value ?? string.Empty).Trim().ToUpperInvariant();
+        var match = _sidRunwayRegex.Match(value);
+        if (!match.Success)
+        {
+            return (value, string.Empty);
+        }
+
+        return (
+            match.Groups["sid"].Value.Trim().ToUpperInvariant(),
+            match.Groups["runway"].Success ? match.Groups["runway"].Value.Trim().ToUpperInvariant() : string.Empty);
+    }
+
+    private (string Sid, string Runway) SidRunwayFromRoute()
+    {
+        var firstToken = (FDR.RouteNoParse ?? FDR.Route ?? string.Empty)
+            .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault() ?? string.Empty;
+
+        var parsed = SidRunwayFromRaw(firstToken);
+        return !string.IsNullOrWhiteSpace(parsed.Runway) && LooksLikeSidToken(parsed.Sid)
+            ? parsed
+            : (string.Empty, string.Empty);
+    }
+
+    private static bool LooksLikeSidToken(string value)
+    {
+        return Regex.IsMatch(value ?? string.Empty, @"^[A-Z]{4,}\d[A-Z][A-Z]*$", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(value ?? string.Empty, @"^[A-Z]{4}\d[A-Z]$", RegexOptions.IgnoreCase);
+    }
+
+    /// <summary>
+    /// Gets a list of possible departure runways.
+    /// </summary>
+    public List<Airspace2.SystemRunway> PossibleDepRunways
+    {
+        get
+        {
+            var aerodrome = FDR.DepAirport;
+            return Airspace2.GetRunways(aerodrome);
+        }
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the squawk code is correct.
+    /// </summary>
+    public bool SquawkCorrect
+    {
+        get
+        {
+            var rtrack = GetRadarTrack();
+            var ssrCodeCorrect = rtrack?.ActualAircraft.TransponderCode == FDR.AssignedSSRCode;
+            var modec = rtrack?.ActualAircraft.TransponderModeC;
+
+            // Probably a cleaner way to do this, but I am lazy and it is 2AM.
+            if (FDR.AircraftType == "A388")
+            {
+                return ssrCodeCorrect;
+            }
+
+            return modec == true && ssrCodeCorrect;
+        }
+    }
+
+    /// <summary>
+    /// Gets a dictionary which contains the departure next state for a given state.
+    /// </summary>
+    private static Dictionary<StripBay, StripBay> NextBayDep { get; } = new()
+    {
+        { StripBay.BAY_PREA, StripBay.BAY_CLEARED },
+        { StripBay.BAY_CLEARED, StripBay.BAY_COORDINATOR },
+        { StripBay.BAY_COORDINATOR, StripBay.BAY_PUSHED },
+        { StripBay.BAY_PUSHED, StripBay.BAY_TAXI },
+        { StripBay.BAY_TAXI, StripBay.BAY_HOLDSHORT },
+        { StripBay.BAY_HOLDSHORT, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_RUNWAY, StripBay.BAY_OUT },
+        { StripBay.BAY_OUT, StripBay.BAY_DEAD },
+    };
+
+    /// <summary>
+    /// Gets a dictionary which contains the arrival next state for a given state.
+    /// </summary>
+    private static Dictionary<StripBay, StripBay> NextBayArr { get; } = new()
+    {
+        { StripBay.BAY_TAXI, StripBay.BAY_DEAD },
+        { StripBay.BAY_RUNWAY, StripBay.BAY_TAXI },
+        { StripBay.BAY_ARRIVAL, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_CIRCUIT, StripBay.BAY_RUNWAY },
+    };
+
+    /// <summary>
+    /// Gets a dictionary which contains the arrival next state for a given state.
+    /// </summary>
+    private static Dictionary<StripBay, StripBay> NextBayLocal { get; } = new()
+    {
+        { StripBay.BAY_PREA, StripBay.BAY_CLEARED },
+        { StripBay.BAY_CLEARED, StripBay.BAY_COORDINATOR },
+        { StripBay.BAY_COORDINATOR, StripBay.BAY_PUSHED },
+        { StripBay.BAY_PUSHED, StripBay.BAY_TAXI },
+        { StripBay.BAY_TAXI, StripBay.BAY_HOLDSHORT },
+        { StripBay.BAY_HOLDSHORT, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_RUNWAY, StripBay.BAY_CIRCUIT },
+        { StripBay.BAY_CIRCUIT, StripBay.BAY_RUNWAY },
+    };
+
+    /// <summary>
+    /// Converts a strip controller to the data object.
+    /// </summary>
+    /// <param name="sc">The strip controller.</param>
+    public static implicit operator StripDTO(Strip sc)
+    {
+        var scDTO = new StripDTO
+        {
+            bay = sc.CurrentBay,
+            CLX = sc.CLX,
+            GATE = sc.Gate,
+            cockLevel = sc.CockLevel,
+            crossing = sc.Crossing,
+            remark = !string.IsNullOrWhiteSpace(sc.FDR.GlobalOpData) ? sc.FDR.GlobalOpData : sc.Remark,
+            TOT = sc.TakeOffTime?.ToString(CultureInfo.InvariantCulture) ?? "\0",
+            ready = sc.Ready,
+            DepartureChanged = sc.DepartureChanged,
+            StripKey = sc.StripKey,
+            OverrideStripType = sc.OverrideStripType,
+            PDCFlags = sc.PDCFlags,
+            DepartureFrequency = sc.DepartureFrequency,
+            GlobalOpData = sc.FDR.GlobalOpData,
+            InhibitedAlerts = sc.InhibitedAlerts,
+        };
+
+        return scDTO;
+    }
+
+    /// <summary>
+    /// Sets the HMI picked state.
+    /// </summary>
+    /// <param name="picked">True if picked, false otherwise.</param>
+    public void SetHMIPicked(bool picked)
+    {
+        Controller?.HMI_TogglePick(picked);
+    }
+
+    /// <summary>
+    /// Cocks the selected strip.
+    /// </summary>
+    public void CockStrip()
+    {
+        Controller?.Cock(-1);
+    }
+
+    /// <summary>
+    /// That the strip has taken off.
+    /// </summary>
+    public void TakeOff()
+    {
+        if (TakeOffTime is null)
+        {
+            TakeOffTime = DateTime.UtcNow;
+            CoordinateStrip();
+        }
+        else
+        {
+            TakeOffTime = null;
+        }
+
+        _ = SyncStrip();
+    }
+
+    /// <summary>
+    /// For local strips, cycle between APP, DEP and LOC strip modes.
+    /// </summary>
+    public void FlipFlop()
+    {
+        if (DefaultStripType != StripType.LOCAL)
+        {
+            return;
+        }
+
+        OverrideStripType++;
+
+        if (OverrideStripType > StripType.LOCAL)
+        {
+            OverrideStripType = StripType.ARRIVAL;
+        }
+
+        _ = SyncStrip();
+    }
+
+    /// <summary>
+    /// Inhibits display of an alert.
+    /// </summary>
+    /// <param name="alert">Alert to inhibit.</param>
+    public void InhibitAlert(Shared.AlertTypes alert)
+    {
+        if (!InhibitedAlerts.HasFlag(alert))
+        {
+            InhibitedAlerts |= alert;
+            _ = SyncStrip();
+        }
+    }
+
+    /// <summary>
+    /// Determines whether or not an alert is active.
+    /// </summary>
+    /// <param name="alert">Alert to check.</param>
+    /// <returns>Alert is active.</returns>
+    /// <exception cref="ArgumentException">Invalid alert type passed.</exception>
+    public bool IsAlertActive(Shared.AlertTypes alert)
+    {
+        if (InhibitedAlerts.HasFlag(alert))
+        {
+            return false;
+        }
+
+        return alert switch
+        {
+            Shared.AlertTypes.RFL => Controller.CFLAlertActive(),
+            Shared.AlertTypes.SSR => !SquawkCorrect &&
+                                CurrentBay >= StripBay.BAY_TAXI &&
+                                CurrentBay != StripBay.BAY_COORDINATOR &&
+                                StripType == StripType.DEPARTURE,
+            Shared.AlertTypes.ROUTE => DodgyRoute,
+            Shared.AlertTypes.NO_HDG => CurrentBay >= StripBay.BAY_HOLDSHORT &&
+                                CurrentBay != StripBay.BAY_COORDINATOR &&
+                                string.IsNullOrEmpty(HDG) &&
+                                SID.Length == 3 &&
+                                StripType == StripType.DEPARTURE,
+            Shared.AlertTypes.READY => !Ready && (CurrentBay == StripBay.BAY_HOLDSHORT || CurrentBay == StripBay.BAY_RUNWAY) && StripType != StripType.ARRIVAL,
+            Shared.AlertTypes.VFR_SID => VFRSIDAssigned,
+            Shared.AlertTypes.DEP_CHANGED => DepartureChanged,
+            _ => throw new ArgumentException("Unknown alert type."),
+        };
+    }
+
+    /// <summary>
+    /// Coordinates the strip.
+    /// </summary>
+    public void CoordinateStrip()
+    {
+        if (FDR.State == FDR.FDRStates.STATE_PREACTIVE && (Network.Me.IsRealATC || MainForm.IsDebug) && StripType != StripType.LOCAL)
+        {
+            MMI.EstFDR(FDR);
+        }
+
+        if (CurrentBay == StripBay.BAY_PREA)
+        {
+            Util.ShowWarnBox("You have coordinated this strip while it is in your Preactive Bay.\nYou will no longer be able make changes to the flight plan!\nOpen the vatSys Flight Plan window and deactivate the strip if you still need to make changes to SID, RWY or Altitude.");
+        }
+    }
+
+    /// <summary>
+    /// Deactivates the strip.
+    /// </summary>
+    public void DeactivateStrip()
+    {
+        if (FDR.State == FDR.FDRStates.STATE_COORDINATED && (Network.Me.IsRealATC || MainForm.IsDebug))
+        {
+            FDP2.BackFDR(FDR);
+        }
+    }
+
+    /// <summary>
+    /// Check if adep or ades changed.
+    /// </summary>
+    /// <param name="fdr">New FDR.</param>
+    /// <returns>Whether or not a change is detected.</returns>
+    public bool ADESADEPPairChanged(FDR fdr)
+    {
+        var adPair = fdr.DepAirport + fdr.DesAirport;
+        return adPair != OriginalAerodromePair;
+    }
+
+    /// <summary>
+    /// Sends a Hoppies PDC to the server.
+    /// </summary>
+    /// <param name="text">PDC content.</param>
+    public async void SendPDC(string text)
+    {
+        try
+        {
+            await _socketConn.SendPDC(this, text);
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Sends a CDM update to the server about this strip.
+    /// </summary>
+    /// <param name="state">CDM state.</param>
+    public void SendCDMMessage(CDMState state)
+    {
+        _socketConn.SendCDMUpdate(this, state);
+    }
+
+    /// <summary>
+    /// Determines what to autofill, and autofills what is required.
+    /// </summary>
+    public void FillStrip()
+    {
+        if (_bayManager.AutoAssigner is null || _bayManager.AerodromeState.ATIS is null || DefaultStripType == StripType.ARRIVAL)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = _bayManager.AutoAssigner.DetermineResult(this);
+
+            if (!string.IsNullOrEmpty(result.Runway) && string.IsNullOrEmpty(RWY))
+            {
+                RWY = result.Runway;
+            }
+
+            if (!string.IsNullOrEmpty(SID) && FDR.FlightRules == "V")
+            {
+                SetSID(FDR, null);
+            }
+
+            if (!string.IsNullOrEmpty(result.CFL))
+            {
+                CFL = int.Parse(RFL, CultureInfo.InvariantCulture) < int.Parse(result.CFL, CultureInfo.InvariantCulture) ? RFL : result.CFL;
+            }
+
+            if (result.Departures.Count > 0)
+            {
+                DepartureFrequency = AutoAssigner.DetermineDepFreq(result.Departures);
+            }
+
+            if (!string.IsNullOrEmpty(result.SID))
+            {
+                if (SID != result.SID)
+                {
+                    DepartureChanged = true;
+                }
+
+                try
+                {
+                    SID = result.SID;
+                }
+                catch (Exception ex)
+                {
+                    // Ignore invalid SID errors.
+                    if (!ex.Message.Contains("SID"))
+                    {
+                        throw;
+                    }
+                    else
+                    {
+                        Util.LogText($"Tried to set invalid SID - {FDR.Callsign}@{FDR.DepAirport} - {result.SID}");
+                    }
+                }
+            }
+
+            Controller.AssignSSR();
+
+            _ = SyncStrip();
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Determines whether or not a SC is still valid (or should be kept alive).
+    /// </summary>
+    /// <returns>Valid SC.</returns>
+    public bool DetermineSCValidity()
+    {
+        if (FDR is null)
+        {
+            Util.LogError(new("Strip deleted due to non-existence of vatsys FDR."));
+            return false;
+        }
+
+        if (Network.GetOnlinePilots.Find(x => x.Callsign == FDR.Callsign) is null)
+        {
+            return false;
+        }
+
+        // FIN, SUS or INCT FDRs
+        if (FDR.State < FDR.FDRStates.STATE_PREACTIVE && DefaultStripType == StripType.DEPARTURE)
+        {
+            return false;
+        }
+
+        var distance = GetDistToAerodrome(_bayManager.AerodromeName);
+
+        if (distance is -1 or > 50 && DefaultStripType == StripType.DEPARTURE)
+        {
+            return false;
+        }
+
+        if (!ApplicableToAerodrome(_bayManager.AerodromeName))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Refreshes strip properties, and determines if strip should be removed.
+    /// </summary>
+    public async void UpdateFDR()
+    {
+        try
+        {
+            if (!DetermineSCValidity())
+            {
+                _bayManager.BayRepository.DeleteStrip(this);
+                return;
+            }
+
+            // Route fetch will retry every minute.
+            if (ValidRoutes is null)
+            {
+                await _routeFetchSemaphore.WaitAsync();
+                try
+                {
+                    if (RequestedRoutes == DateTime.MaxValue || (DateTime.Now - RequestedRoutes) > TimeSpan.FromMinutes(1))
+                    {
+                        await _socketConn.RequestRoutes(this);
+                        RequestedRoutes = DateTime.Now;
+                    }
+                }
+                finally
+                {
+                    _routeFetchSemaphore.Release();
+                }
+            }
+
+            if (ValidRoutes is not null)
+            {
+                CondensedRoute = CleanVatsysRoute(FDR.Route);
+                DodgyRoute = !MatchesAnyStandardRoute(CondensedRoute, ValidRoutes);
+
+                // If not departure or FDR active.
+                if (DefaultStripType != StripType.DEPARTURE || (int)FDR.State > 5)
+                {
+                    DodgyRoute = false;
+                }
+                else
+                {
+                    // account for situations where aircraft joins route from interim point via sid.
+                    if (DodgyRoute)
+                    {
+                        var rte = string.Join(" ", CleanVatsysRoute(FDR.Route).Split(' ').Skip(1).ToArray());
+                        DodgyRoute = !MatchesAnyStandardRoute(rte, ValidRoutes);
+                    }
+
+                    if (!DodgyRoute && (CondensedRoute == "FAIL" || CondensedRoute == "\0"))
+                    {
+                        DodgyRoute = true;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Moves the strip into the "next" bay.
+    /// </summary>
+    public void SIDTrigger()
+    {
+        // TODO: do something with this.
+        Dictionary<StripBay, StripBay> stripBayResultDict;
+
+        switch (StripType)
+        {
+            case StripType.ARRIVAL:
+                stripBayResultDict = NextBayArr;
+                break;
+            case StripType.DEPARTURE:
+                stripBayResultDict = NextBayDep;
+                break;
+
+            case StripType.LOCAL:
+                stripBayResultDict = NextBayLocal;
+                break;
+            default:
+                return;
+        }
+
+        var nextStripBay = CurrentBay;
+        var nextBayFound = false;
+        var currentStripBay = _bayManager.BayRepository.FindBay(this);
+        Bay? nextBay = null;
+        if (currentStripBay == null)
+        {
+            return;
+        }
+
+        while (!nextBayFound)
+        {
+            if (stripBayResultDict.TryGetValue(nextStripBay, out var probedNextBay))
+            {
+                nextStripBay = probedNextBay;
+                var proposedNewBay = _bayManager.BayRepository.Bays.FirstOrDefault(x => x.BayTypes.Contains(probedNextBay));
+
+                // SIDTriggering into a not-loaded stripbay (or into BAY_DEAD),
+                if (proposedNewBay is null)
+                {
+                    break;
+                }
+
+                if (proposedNewBay != currentStripBay)
+                {
+                    nextBayFound = true;
+                    nextBay = proposedNewBay;
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (nextBay is not null)
+        {
+            _ = _bayManager.MoveStrip(nextBay, this);
+
+            if (_bayManager.PickedStrip == this)
+            {
+                _bayManager.PickedStripItem = nextBay.GetListItem(this);
+                _bayManager.RemovePicked(true);
+            }
+        }
+        else
+        {
+            CurrentBay = nextStripBay;
+            _ = SyncStrip();
+            _bayManager.UpdateBay(this);
+
+            if (_bayManager.PickedStrip == this)
+            {
+                _bayManager.RemovePicked(true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Toggles the pick state.
+    /// </summary>
+    public void TogglePick()
+    {
+        if (_bayManager.PickedStrip == this)
+        {
+            _bayManager.RemovePicked(true, true);
+        }
+        else
+        {
+            _bayManager.SetPickedStripClass(this);
+        }
+    }
+
+    /// <summary>
+    /// Requests new strip data from the server, for new strips.
+    /// </summary>
+    /// <returns>Task.</returns>
+    public async Task FetchStripData()
+    {
+        await _socketConn.RequestStrip(this);
+    }
+
+    /// <summary>
+    /// Determines if the strip is applicable to the passed aerodrome.
+    /// </summary>
+    /// <param name="name">The name of the aerodrome to check.</param>
+    /// <returns>True if it is applicable false otherwise.</returns>
+    public bool ApplicableToAerodrome(string name)
+    {
+        return FDR.DepAirport == name || FDR.DesAirport == name;
+    }
+
+    /// <summary>
+    /// Gets the distance to the specified aerodrome.
+    /// </summary>
+    /// <param name="aerodrome">The aerodrome to check.</param>
+    /// <returns>The distance, or -1 if it is unable to be determined.</returns>
+    public double GetDistToAerodrome(string aerodrome)
+    {
+        try
+        {
+            var adCoord = Airspace2.GetAirport(aerodrome)?.LatLong;
+            var planeCoord = FDR.PredictedPosition?.Location;
+            var radarTracks = (from radarTrack in RDP.RadarTracks
+                               where radarTrack?.ActualAircraft?.Callsign == FDR.Callsign
+                               select radarTrack).ToList();
+
+            if (radarTracks.Count > 0)
+            {
+                foreach (var rTrack in radarTracks)
+                {
+                    planeCoord = rTrack.ActualAircraft?.Position;
+                }
+            }
+
+            if (adCoord is not null && planeCoord is not null)
+            {
+                return Conversions.CalculateDistance(adCoord, planeCoord);
+            }
+        }
+        catch
+        {
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Gets the radar track.
+    /// </summary>
+    /// <returns>The tradar track or null if none available.</returns>
+    public RDP.RadarTrack? GetRadarTrack()
+    {
+        try
+        {
+            var radarTracks = RDP.RadarTracks
+                .Where(radarTrack => radarTrack?.ActualAircraft?.Callsign == FDR.Callsign)
+                .ToList();
+            return radarTracks.Count > 0 ? radarTracks[0] : null;
+        }
+        catch (Exception e)
+        {
+            Util.LogError(e);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// To string method.
+    /// </summary>
+    /// <returns>Description.</returns>
+    public override string ToString()
+    {
+        return FDR.Callsign;
+    }
+
+    /// <summary>
+    /// Opens the VATSYS flight data record.
+    /// </summary>
+    public void OpenVatsysFDR(Point? position = null)
+    {
+        MMI.OpenFPWindow(FDR);
+    }
+
+    /// <summary>
+    /// Sync the strip with the server.
+    /// </summary>
+    /// <returns>Task.</returns>
+    public async Task SyncStrip()
+    {
+        try
+        {
+            await _socketConn.SyncSC(this);
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Cleans up the vatsys route into a format parseable by the route checker.
+    /// </summary>
+    /// <param name="rawRoute">The raw route.</param>
+    /// <returns>The parsed route.</returns>
+    private static string CleanVatsysRoute(string rawRoute)
+    {
+        try
+        {
+            var rawRouteArr = rawRoute.Split(' ');
+            var routeArr = new List<string>();
+
+            foreach (var routeElement in rawRouteArr)
+            {
+                // Don't include GPS waypoints.
+                if (_gpscoordRegex.Match(routeElement).Success)
+                {
+                    continue;
+                }
+
+                if (routeElement.Contains("/"))
+                {
+                    // Don't include vatsys inserted SIDs
+                    if (!_sidRouteRegex.Match(routeElement).Success)
+                    {
+                        routeArr.Add(routeElement.Split('/').First());
+                    }
+                }
+                else if (routeElement != "DCT")
+                {
+                    // Don't include funky simbrief inserted waypoints.
+                    if (routeElement.Any(char.IsDigit) && !_airwayRegex.IsMatch(routeElement))
+                    {
+                        continue;
+                    }
+
+                    routeArr.Add(routeElement);
+                }
+            }
+
+            if (routeArr.Count < 3)
+            {
+                return "\0";
+            }
+
+            /*
+             * Remove first and last waypoint
+             * (Will validate based on airways only)
+             */
+            if (routeArr.Count < 3)
+            {
+                return "\0";
+            }
+
+            if (!routeArr.First().Any(char.IsDigit))
+            {
+                routeArr.RemoveAt(0);
+            }
+
+            if (!routeArr.Last().Any(char.IsDigit))
+            {
+                routeArr.RemoveAt(routeArr.Count - 1);
+            }
+
+            // Remove intermediary wpts.
+            var finalArr = new List<string>();
+
+            for (var i = 0; i < routeArr.Count; i++)
+            {
+                var element = routeArr[i];
+
+                if (i + 2 < routeArr.Count && element == routeArr[i + 2])
+                {
+                    i++;
+                    continue;
+                }
+
+                finalArr.Add(element);
+            }
+
+            return string.Join(" ", finalArr);
+        }
+        catch (Exception ex)
+        {
+            Util.LogText($"PARSER, RTE: {rawRoute}, ERR: {ex.Message}\n{ex.StackTrace}");
+            return "\0";
+        }
+    }
+
+    private static bool MatchesAnyStandardRoute(string filedRoute, IEnumerable<RouteDTO> validRoutes)
+    {
+        return !string.IsNullOrWhiteSpace(filedRoute) &&
+            filedRoute != "\0" &&
+            filedRoute != "FAIL" &&
+            validRoutes.Any(validRoute => RouteTokenSequencesOverlap(filedRoute, validRoute.RouteText));
+    }
+
+    private static bool RouteTokenSequencesOverlap(string filedRoute, string standardRoute)
+    {
+        var filedTokens = RouteTokens(filedRoute);
+        var standardTokens = RouteTokens(standardRoute);
+
+        return filedTokens.Length > 0 &&
+            standardTokens.Length > 0 &&
+            (ContainsTokenSequence(standardTokens, filedTokens) || ContainsTokenSequence(filedTokens, standardTokens));
+    }
+
+    private static string[] RouteTokens(string route)
+    {
+        return (route ?? string.Empty)
+            .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(NormaliseRouteToken)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToArray();
+    }
+
+    private static string NormaliseRouteToken(string routeElement)
+    {
+        routeElement = (routeElement ?? string.Empty).Trim().Trim(',', ';').ToUpperInvariant();
+
+        if (string.IsNullOrWhiteSpace(routeElement) ||
+            routeElement == "DCT" ||
+            _gpscoordRegex.Match(routeElement).Success ||
+            _sidRouteRegex.Match(routeElement).Success)
+        {
+            return string.Empty;
+        }
+
+        return routeElement.Contains("/") ? routeElement.Split('/').First() : routeElement;
+    }
+
+    private static bool ContainsTokenSequence(string[] haystack, string[] needle)
+    {
+        if (needle.Length == 0 || haystack.Length < needle.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i <= haystack.Length - needle.Length; i++)
+        {
+            var matched = true;
+            for (var j = 0; j < needle.Length; j++)
+            {
+                if (!string.Equals(haystack[i + j], needle[j], StringComparison.OrdinalIgnoreCase))
+                {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if (matched)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Disposes of the strip.
+    /// </summary>
+    public void Dispose()
+    {
+        _routeFetchSemaphore.Dispose();
+    }
+}

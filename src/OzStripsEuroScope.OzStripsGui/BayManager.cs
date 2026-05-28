@@ -1,0 +1,858 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using MaxRumsey.OzStripsPlugin.GUI.DTO;
+using MaxRumsey.OzStripsPlugin.GUI.Properties;
+using MaxRumsey.OzStripsPlugin.GUI.Shared;
+using OpenTK.Graphics.ES11;
+using vatsys;
+using static vatsys.FDP2;
+
+// todo: separate GUI components into separate class
+namespace MaxRumsey.OzStripsPlugin.GUI;
+
+/// <summary>
+/// Handles the bays.
+/// </summary>
+/// <remarks>
+/// Initializes a new instance of the <see cref="BayManager"/> class.
+/// </remarks>
+public class BayManager
+{
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BayManager"/> class.
+    /// </summary>
+    /// <param name="main">The flow layout for the bay.</param>
+    public BayManager(FlowLayoutPanel main)
+    {
+        BayRepository = new(main, this);
+    }
+
+    /// <summary>
+    /// Gets or sets the loaded autoassigner.
+    /// </summary>
+    internal AutoAssigner? AutoAssigner { get; set; }
+
+    /// <summary>
+    /// Gets the picked controller.
+    /// </summary>
+    public Strip? PickedStrip
+    {
+        get
+        {
+            if (PickedStripItem is not null && PickedStripItem.Type == StripItemType.STRIP)
+            {
+                return PickedStripItem.Strip;
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the picked list item.
+    /// </summary>
+    public StripListItem? PickedStripItem { get; set; }
+
+    /// <summary>
+    /// Gets the strip repository.
+    /// </summary>
+    public StripRepository StripRepository { get; } = new StripRepository();
+
+    /// <summary>
+    /// Gets the bay repository.
+    /// </summary>
+    public BayRepository BayRepository { get; internal set; }
+
+    /// <summary>
+    /// Gets or sets the aerodrome name.
+    /// </summary>
+    public string AerodromeName { get; set; } = "????";
+
+    /// <summary>
+    /// Gets or sets the last transmit manager.
+    /// </summary>
+    public LastTransmitManager LastTransmitManager { get; set; } = new();
+
+    /// <summary>
+    /// Gets or sets the current AerodromeState.
+    /// </summary>
+    public AerodromeState AerodromeState { get; set; } = new AerodromeState
+    {
+        AerodromeCode = "????",
+        CircuitActive = false,
+        CoordinatorBayActive = false,
+        Connections = [],
+    };
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the circuit bay is active.
+    /// </summary>
+    public bool CircuitActive { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the coordinator bay is active.
+    /// </summary>
+    public bool CoordinatorBayActive { get; set; }
+
+    /// <summary>
+    /// Gets the bay the current picked striplistitem is from.
+    /// </summary>
+    public Bay? PickedBay
+    {
+        get
+        {
+            if (PickedStripItem is not null)
+            {
+                return BayRepository.FindBay(PickedStripItem);
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Deselects all vatSys tracks.
+    /// </summary>
+    /// <param name="originatedFromGround">Whether this originated from deselection of a ground track.</param>
+    public static void DeSelectAllVatSysTracks(bool originatedFromGround)
+    {
+        // todo: is passing originator type necessary?
+        if (originatedFromGround && MMI.SelectedTrack != null)
+        {
+            MMI.SelectOrDeselectTrack(MMI.SelectedTrack);
+        }
+        else if (!originatedFromGround && MMI.SelectedGroundTrack != null)
+        {
+            MMI.SelectOrDeselectGroundTrack(MMI.SelectedGroundTrack);
+        }
+    }
+
+    /// <summary>
+    /// Sets relevant vatSys selected tracks, when we select an actual strip item.
+    /// </summary>
+    /// <param name="strip">Strip we are setting vatsys tracks to.</param>
+    public static void SelectVatSysTracks(Strip? strip)
+    {
+        var rTrack = RDP.RadarTracks.FirstOrDefault(x => x.ActualAircraft.Callsign == strip?.FDR.Callsign);
+        var groundTrack = MMI.FindTrack(rTrack);
+        var fdrTrack = MMI.FindTrack(strip?.FDR);
+
+        if (fdrTrack is not null && MMI.SelectedTrack != fdrTrack)
+        {
+            MMI.SelectOrDeselectTrack(fdrTrack);
+        }
+
+        if (groundTrack is not null && MMI.SelectedGroundTrack != groundTrack)
+        {
+            MMI.SelectOrDeselectGroundTrack(groundTrack);
+        }
+    }
+
+    /// <summary>
+    /// Sets the picked callsign, and if deselecting a track, deselects the corresponding air/ground track.
+    /// </summary>
+    /// <param name="callsign">Aircraft callsign.</param>
+    /// <param name="originatedFromGround">Whether or not the track is a ground track.</param>
+    public void SetPickedCallsignFromVatsys(string? callsign, bool originatedFromGround)
+    {
+        if (callsign is not null)
+        {
+            var sc = StripRepository.GetStrip(callsign);
+            if (sc is not null)
+            {
+                SetPickedStripFromExternal(sc);
+            }
+        }
+        else
+        {
+            if (PickedStrip == null)
+            {
+                return;
+            }
+
+            // This is a vatSys track being deselected.
+            DeSelectAllVatSysTracks(originatedFromGround);
+            RemovePicked(false, true);
+        }
+    }
+
+    /// <summary>
+    /// Forces a track into the first bay.
+    /// </summary>
+    /// <param name="socketConn">The socket connection.</param>
+    /// <returns>Task.</returns>
+    public async Task ForceStrip(SocketConn socketConn)
+    {
+        try
+        {
+            if (MMI.SelectedTrack != null)
+            {
+                var fdr = MMI.SelectedTrack.GetFDR();
+                if (fdr is null)
+                {
+                    return;
+                }
+
+                var controller = await StripRepository.UpdateFDR(fdr, this, socketConn);
+
+                if (controller != null && BayRepository.Bays[0] != null)
+                {
+                    controller.CurrentBay = BayRepository.Bays[0].BayTypes[0];
+                    _ = controller.SyncStrip();
+                    controller.FDR = fdr;
+                    UpdateBay(controller);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// SidTriggers the selected strip.
+    /// </summary>
+    public void SidTrigger()
+    {
+        PickedStrip?.SIDTrigger();
+    }
+
+    /// <summary>
+    /// Cocks the selected strip.
+    /// </summary>
+    public void CockStrip()
+    {
+        PickedStrip?.CockStrip();
+    }
+
+    /// <summary>
+    /// Inhibit the strip.
+    /// </summary>
+    public void Inhibit()
+    {
+        if (PickedStrip != null)
+        {
+            PickedStrip.CurrentBay = StripBay.BAY_DEAD;
+            _ = PickedStrip.SyncStrip();
+            UpdateBay(PickedStrip);
+            RemovePicked(true, true);
+        }
+        else if (PickedBay is not null && PickedStripItem is not null && PickedStripItem.Type != StripItemType.STRIP)
+        {
+            PickedBay.DeleteBar(PickedStripItem);
+        }
+    }
+
+    /// <summary>
+    /// Toggles crossing highlight on a strip.
+    /// </summary>
+    public void CrossStrip()
+    {
+        if (PickedStrip != null)
+        {
+            PickedStrip.Crossing = !PickedStrip.Crossing;
+            PickedStrip.Controller?.SetCross();
+            RemovePicked(true);
+        }
+    }
+
+    /// <summary>
+    /// Toggles crossing highlight on a strip.
+    /// </summary>
+    public void FlipFlopStrip()
+    {
+        if (PickedStrip != null)
+        {
+            PickedStrip.FlipFlop();
+            RemovePicked(true);
+        }
+    }
+
+    /// <summary>
+    /// Autofills picked strip data.
+    /// </summary>
+    public void FillStrip()
+    {
+        PickedStrip?.FillStrip();
+    }
+
+    /// <summary>
+    /// Picks the strip of the aircraft that transmitted last.
+    /// </summary>
+    public void PickLastTransmit()
+    {
+        if (string.IsNullOrEmpty(LastTransmitManager.LastReceivedFrom) ||
+            PickedStrip?.FDR.Callsign == LastTransmitManager.LastReceivedFrom)
+        {
+            return;
+        }
+
+        foreach (var strip in StripRepository.Strips)
+        {
+            if (strip.FDR.Callsign == LastTransmitManager.LastReceivedFrom)
+            {
+                SetPickedStripClass(strip);
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Drop the strip to the specified bay.
+    /// </summary>
+    /// <param name="bay">The bay.</param>
+    /// <returns>Task.</returns>
+    public async Task DropStrip(Bay bay)
+    {
+        try
+        {
+            if (PickedStrip != null)
+            {
+                var res = await MoveStrip(bay, PickedStrip);
+                if (res)
+                {
+                    PickedStripItem = bay.GetListItem(PickedStrip);
+                    RemovePicked(true);
+                }
+            }
+            else
+            {
+                MainFormController.Instance?.ForceStrip(null, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Moves a strip between bays.
+    /// </summary>
+    /// <param name="bay">Bay to move into.</param>
+    /// <param name="strip">Strip to move.</param>
+    /// <returns>Whether or not the strip was moved.</returns>
+    public async Task<bool> MoveStrip(Bay bay, Strip strip)
+    {
+        try
+        {
+            var newBay = bay.BayTypes.FirstOrDefault();
+            if (newBay == strip.CurrentBay)
+            {
+                return false;
+            }
+
+            strip.CurrentBay = newBay;
+            await strip.SyncStrip();
+            UpdateBay(strip);
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Drops the selected strip below the target strip.
+    /// </summary>
+    /// <param name="targetItem">The target item to drop below.</param>
+    /// <exception cref="Exception">Strip insertion failed.</exception>
+    public async void DropStripBelow(StripListItem targetItem)
+    {
+        try
+        {
+            var newBay = BayRepository.FindBay(targetItem);
+
+            if (newBay is null || PickedStrip is null)
+            {
+                return;
+            }
+
+            var strip = PickedStrip;
+            var position = newBay.Strips.FindIndex(x => x == targetItem);
+
+            await DropStrip(newBay);
+
+            var stripListItem = newBay.GetListItem(strip) ?? throw new Exception("Could not find strip within new bay after moving it.");
+
+            newBay.ChangeStripPositionAbs(stripListItem, position);
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Sets the aerodrome. Reinitialises various classes.
+    /// </summary>
+    /// <param name="name">The name of the aerodrome.</param>
+    /// <param name="socketConn">The socket connection.</param>
+    public void PurgeDataAndSetNewAerodrome(string name, SocketConn socketConn)
+    {
+        AerodromeName = name;
+
+        AutoAssigner = new(this);
+
+        if (CircuitActive)
+        {
+            CircuitActive = false;
+            BayRepository.ConfigureAndSizeFLPs(true);
+        }
+
+        AerodromeState = new()
+        {
+            AerodromeCode = name,
+        };
+
+        WipeStrips();
+        StripRepository.ClearStrips();
+
+        foreach (var fdr in FDP2.GetFDRs)
+        {
+            _ = StripRepository.UpdateFDR(fdr, this, socketConn, true);
+        }
+
+        if (MainFormController.Instance?.IsDisposed == false)
+        {
+            try
+            {
+                LockWindowUpdate(MainFormController.Instance.Handle);
+
+                foreach (var bay in BayRepository.Bays)
+                {
+                    bay.ResizeBay();
+                }
+            }
+            finally
+            {
+                LockWindowUpdate(IntPtr.Zero);
+            }
+        }
+
+        BayRepository.ResizeStripBays();
+    }
+
+    /// <summary>
+    /// Sets a strip item to be picked.
+    /// </summary>
+    /// <param name="item">The strip item.</param>
+    /// <param name="bay">The bay the item is from, or null if this is an inhibited strip..</param>
+    public void SetPickedStripItem(StripListItem item, Bay? bay = null)
+    {
+        RemovePicked(false, true);
+        PickedStripItem = item;
+
+        item.RenderedStripItem?.MarkPicked(true);
+
+        if (item.Type == StripItemType.STRIP && item.Strip is not null)
+        {
+            bay?.ChildPanel.SetPicked(item.Strip);
+
+            SelectVatSysTracks(item.Strip);
+        }
+    }
+
+    /// <summary>
+    /// Toggles a strip item as picked.
+    /// </summary>
+    /// <param name="item">The strip item.</param>
+    /// <param name="bay">The specified bay.</param>
+    public void TogglePickedStripItem(StripListItem item, Bay? bay = null)
+    {
+        if (PickedStripItem == item)
+        {
+            RemovePicked(true, true);
+        }
+        else
+        {
+            // Prevent circumstance where strip remains picked when picking a bar.
+            // Hacky. :(
+            if (PickedStripItem != null)
+            {
+                RemovePicked(true, true);
+            }
+
+            SetPickedStripItem(item, bay);
+        }
+    }
+
+    /// <summary>
+    /// Sets a controller to be picked, from an FDR.
+    /// </summary>
+    /// <param name="strip">The strip.</param>
+    public void SetPickedStripFromExternal(Strip? strip)
+    {
+        if (strip is not null)
+        {
+            // Is this a duplicate or follow-up event from vatsys?
+            // i.e. Did we just set the strip within vatsys.
+            if (PickedStrip == strip)
+            {
+                return;
+            }
+
+            if (!SetPickedStripClass(strip))
+            {
+                /*
+                    * Strip is inhibited.
+                    */
+
+                RemovePicked(false, true);
+                PickedStripItem = new()
+                {
+                    Strip = strip,
+                };
+            }
+        }
+        else
+        {
+            RemovePicked(false, true);
+        }
+    }
+
+    /// <summary>
+    /// Sets the picked controller to be empty.
+    /// </summary>
+    /// <param name="sendToVatsys">Whether or not to update vatSys tracks.</param>
+    /// <param name="force">Override user preference on retaining picked strips.</param>
+    public void RemovePicked(bool sendToVatsys = false, bool force = false)
+    {
+        if (force || !OzStripsSettings.Default.KeepStripPicked)
+        {
+            PickedBay?.ChildPanel.SetPicked(null);
+
+            PickedStripItem?.RenderedStripItem?.MarkPicked(false);
+            PickedStripItem = null;
+
+            if (sendToVatsys)
+            {
+                MMI.SelectOrDeselectGroundTrack(MMI.SelectedGroundTrack);
+                MMI.SelectOrDeselectTrack(MMI.SelectedTrack);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Wipe the strips.
+    /// </summary>
+    public void WipeStrips()
+    {
+        PickedStripItem = null;
+        foreach (var bay in BayRepository.Bays)
+        {
+            bay.WipeStrips();
+        }
+    }
+
+    /// <summary>
+    /// Adds a strip to the relevant bays. If required, saves the strip and resizes the bays.
+    /// </summary>
+    /// <param name="strip">The strip to add.</param>
+    /// <param name="save">If the strip should be saved to the server.</param>
+    /// <param name="inhibitreorders">Whether or not to inhibit strip reodering.</param>
+    public void AddStrip(Strip strip, bool save = true, bool inhibitreorders = false)
+    {
+        if (!strip.DetermineSCValidity())
+        {
+            return;
+        }
+
+        foreach (var bay in BayRepository.Bays)
+        {
+            if (bay.ResponsibleFor(strip.CurrentBay))
+            {
+                bay.AddStrip(strip, inhibitreorders);
+
+                // Lock bay scrollbars if this strip is picked.
+                if (PickedStrip == strip)
+                {
+                    bay.ChildPanel.SetPicked(strip);
+                }
+            }
+        }
+
+        if (save && !StripRepository.Strips.Contains(strip))
+        {
+            StripRepository.AddStrip(strip);
+        }
+
+        if (!inhibitreorders)
+        {
+            BayRepository.ResizeStripBays();
+        }
+    }
+
+    /// <summary>
+    /// Runs update function on relevant bays when a strip is moved.
+    /// </summary>
+    /// <param name="strip">The strip controller.</param>
+    /// <param name="serverInitiated">Whether or not the server iniated this move.</param>
+    /// Called by inhibits, moving strips, sid triggers, server pos updates.
+    public void UpdateBay(Strip strip, bool serverInitiated = false)
+    {
+        foreach (var bay in BayRepository.Bays)
+        {
+            if (bay.OwnsStrip(strip))
+            {
+                bay.RemoveStrip(strip);
+
+                // De-lock bay scrollbars.
+                if (PickedStrip == strip)
+                {
+                    bay.ChildPanel.SetPicked(null);
+                }
+            }
+        }
+
+        AddStrip(strip);
+
+        if (!serverInitiated)
+        {
+            if (strip.CurrentBay >= StripBay.BAY_CLEARED)
+            {
+                strip.CoordinateStrip();
+            }
+            else if (strip.CurrentBay == StripBay.BAY_PREA)
+            {
+                strip.DeactivateStrip();
+            }
+
+            CDMState? state = SharedCDMConstants.BayStateMap.ContainsKey(strip.CurrentBay) ? SharedCDMConstants.BayStateMap[strip.CurrentBay] : null;
+
+            if (state is not null)
+            {
+                strip.SendCDMMessage((CDMState)state);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Forces a rerender.
+    /// </summary>
+    public void ForceRerender()
+    {
+        try
+        {
+            foreach (var bay in BayRepository.Bays)
+            {
+                bay.ForceRerender();
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Move strips to the next bar.
+    /// </summary>
+    /// <param name="direction">Position (up/down).</param>
+    public void PositionToNextBar(int direction)
+    {
+        if (PickedStripItem is null)
+        {
+            return;
+        }
+
+        var bay = BayRepository.FindBay(PickedStripItem);
+        if (bay is null)
+        {
+            return;
+        }
+
+        var index = bay.Strips.IndexOf(PickedStripItem);
+        if (bay.Strips.ElementAtOrDefault(index + direction)?.Type != StripItemType.STRIP)
+        {
+            bay.ChangeStripPosition(PickedStripItem, direction);
+            return;
+        }
+
+        if (direction == 1)
+        {
+            for (var i = index + 2; i < bay.Strips.Count; i++)
+            {
+                var presentElement = bay.Strips.ElementAtOrDefault(i);
+                if (presentElement is not null && presentElement.Type != StripItemType.STRIP)
+                {
+                    bay.ChangeStripPositionAbs(PickedStripItem, i - 1);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            for (var i = index - 2; i >= 0; i--)
+            {
+                var presentElement = bay.Strips.ElementAtOrDefault(i);
+                if (presentElement is not null && presentElement.Type != StripItemType.STRIP)
+                {
+                    bay.ChangeStripPositionAbs(PickedStripItem, i + 1);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Positions the key.
+    /// </summary>
+    /// <param name="relPos">The relative position.</param>
+    public void PositionKey(int relPos)
+    {
+        try
+        {
+            if (PickedStripItem != null)
+            {
+                BayRepository.FindBay(PickedStripItem)?.ChangeStripPosition(PickedStripItem, relPos);
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Queues up the selected strip.
+    /// </summary>
+    public void QueueUp()
+    {
+        try
+        {
+            if (PickedStrip != null)
+            {
+                BayRepository.FindBay(PickedStrip)?.QueueUp();
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Creates the specified bar.
+    /// </summary>
+    /// <param name="bayString">Bay name.</param>
+    /// <param name="type">Type of bay.</param>
+    /// <param name="text">Text on bar.</param>
+    public void AddBar(string bayString, int type, string text)
+    {
+        try
+        {
+            var bay = BayRepository.Bays.Find(x => x.Name == bayString);
+
+            bay?.AddBar(type, text);
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Toggles the presence of a cross/release bar, on the runway bay.
+    /// </summary>
+    /// <param name="runwayPair">Runway pair identifier as present in Maps.</param>
+    /// <param name="type">"Crossing" or "Released".</param>
+    public void ToggleCrossReleaseBar(string runwayPair, string type)
+    {
+        var bay = BayRepository.Bays.FirstOrDefault(x => x.BayTypes.Contains(StripBay.BAY_RUNWAY));
+
+        if (runwayPair.Length % 2 != 0)
+        {
+            throw new Exception("Malformed runway number.");
+        }
+
+        if (bay is null)
+        {
+            return;
+        }
+
+        var barType = 3;
+        runwayPair = runwayPair.Insert(runwayPair.Length / 2, "/");
+
+        var text = $"XXX CROSSING RWY {runwayPair} XXX";
+
+        if (type == "Released")
+        {
+            barType = 1;
+            text = $"Runway {runwayPair} Released to SMC";
+        }
+
+        var foundBar = bay.Strips.FirstOrDefault(x => x.Type == StripItemType.BAR && x.Style == barType && x.BarText?.StartsWith(text, StringComparison.InvariantCulture) == true);
+
+        if (foundBar is null)
+        {
+            bay.AddBar(barType, text);
+        }
+        else
+        {
+            bay.DeleteBar(foundBar);
+        }
+    }
+
+    /// <summary>
+    /// Deletes a bar by params. Returns true if found.
+    /// </summary>
+    /// <param name="bayString">Bay name.</param>
+    /// <param name="type">Type of bay.</param>
+    /// <param name="text">Text on bar.</param>
+    /// <returns>Whether or not the bar was found.</returns>
+    public bool DeleteBarByParams(string bayString, int type, string text)
+    {
+        try
+        {
+            var bay = BayRepository.Bays.Find(x => x.Name == bayString);
+
+            var bar = bay?.Strips.FirstOrDefault(x => x.BarText == text && x.Type == StripItemType.BAR && x.Style == type);
+
+            if (bay is not null && bar is not null)
+            {
+                bay.DeleteBar(bar);
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Sets the picked strip item.
+    /// </summary>
+    /// <param name="strip">The strip item.</param>
+    /// <returns>Whether or not the bay was found.</returns>
+    public bool SetPickedStripClass(Strip strip)
+    {
+        foreach (var bay in BayRepository.Bays)
+        {
+            var item = bay.GetListItem(strip);
+            if (item is not null)
+            {
+                SetPickedStripItem(item, bay);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern long LockWindowUpdate(IntPtr handle);
+}

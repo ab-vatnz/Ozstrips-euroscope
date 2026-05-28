@@ -1,0 +1,4 @@
+LIBRARY "OzStripsEuroScope"
+EXPORTS
+    EuroScopePlugInInit=?EuroScopePlugInInit@@YAXPAPAVCPlugIn@EuroScopePlugIn@@@Z
+    EuroScopePlugInExit=?EuroScopePlugInExit@@YAXXZ

@@ -1,0 +1,13 @@
+bin/
+obj/
+dist/
+*.user
+*.suo
+*.VC.db
+*.ipch
+.vs/
+src/**/bin/
+src/**/obj/
+vendor/**/bin/
+vendor/**/obj/
+*.log

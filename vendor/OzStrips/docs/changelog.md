@@ -1,0 +1,314 @@
+# Changelog
+## v0.9.0
+### Misc Changes
+- Added new autofill rule options for YSWS
+- Added ability to toggle circuit bays from non-default aerodrome types.
+- Dropdown text entry will ignore alt + ctrl.
+- Various additional strip items.
+### Server Changes
+- Significant rework of how server connections are handled.
+- Changes how bay content is synced.
+## v0.8.7
+### Bugfixes
+- Fixed crash due to missing keybind "friendly name".
+- Assigned bay through OzBays visible on ground radar.
+### Misc Changes
+- Can place override Strip.xml in config file.
+- Can define default layout name in config file.
+- Can define strip colours in config file.
+## v0.8.6
+### Bugfixes
+- Fixed crash for Win11 users caused by hovering over a tooltip.
+- Prevent non-activated subsectors from being included in calculation to determine which sectors controller is operating.
+- Fixed error caused by missing SID transition in vatsys FDR.
+### Misc Changes
+- Added Strip.xml customisation options.
+### Server Changes
+- Actually fixed CDM departure race condition.
+## v0.8.5
+### Bugfixes
+- Ensure dropdown windows open completely visible.
+## v0.8.4
+### Features
+- Certain bars toggle certain ground maps.
+- Added a cross&release bar quick-add button/shortcut.
+### Misc Changes
+- Added additional PDC template fields.
+- Added ability to match Autofill SIDs with a Regex.
+- Added ability to match airways in route when autofilling.
+- Changed location of RFL warning to RFL.
+- Changed some alert colours.
+### Bugfixes
+- Change how departure radial is calculated.
+- Fixed bug where toggling a bay would reset the view mode to all.
+### Server Changes
+- Fixed bug where CDM departure reports were duplicated due to a race condition.
+## v0.8.3
+### Features
+- Added OzBays integration.
+- Added toggleable coordinator bay.
+- Added ability to inhibit alerts.
+### Misc Changes
+- Added wake turb cat to autofill ruleset.
+- Changed where the plugin looks for AerodromeSettings.xml
+### Bugfixes
+- Prevented preemptive deletion of FDRs
+- Reworked how SID Triggering works
+- Fixed issue with heading warning not showing up in strips.
+## v0.8.2
+### Bugfixes
+- Fixed bug where you strips could not be selected.
+## v0.8.1
+### Features
+- Added keybind changer.
+- Removed edit windows in favour of dropdown.
+### Bugfixes
+- Fixed concurrency issue.
+- Fixed bug when trying to autofill a strip with an unknown type.
+## v0.8.0
+### Features
+- Added strip autofill feature.
+- Added Hoppies PDC send & receive functionality.
+- Added departure frequency box.
+- Added ability to define vatsys label items from ozstrips elements.
+
+### Bugfixes
+- Fixed bug where resizing the stripboard when at a non-radar tower would revert the bays to the radar tower format.
+
+### Misc changes
+- Removed highlighting of CDM aircraft in the Pushback state.
+- Allowed SID Triggering onto the runway.
+- Title text changes based on View Mode, Server & Aerodrome Code.
+
+### Server changes
+- Fixed bug where ATIS Codes would only be distributed to users connected to the Sweatbox, and not the other way around (VATSIM only).
+
+## v0.7.2
+### Features
+- Added last transmit highlight feature.
+- Added ability to highlight aircraft without WF slots.
+### Bugfixes
+Nill.
+### Misc changes
+- Renaming / changing of some server DTO properties.
+- CDM Rate can be locked when enabled on the server.
+### Server changes
+- Added ability to have ADES specific CDM departure rates.
+
+## v0.7.1
+### Bugfixes
+- Fixed crash caused by server-refresh messages.
+- Changed how DepMon is displayed within the runway bay.
+
+## v0.7.0
+### Features
+- Added CDM.
+- Changed strip colour to a nicer green.
+
+### Bugfixes
+- Fixed issue with change aerodrome keybinds not being repeatable when changing between tower modes due to control deletion.
+- Made error handling a bit more elegant.
+- Fixed some disposal issues.
+- Only coordinate strips if a change we made - prevent squawk assignment race condition?
+- Made local strips not autodelete on FDR finishing.
+- Fixed GUI scaling issue - (thanks Eoin!)
+
+### Server changes
+- CDM changes to server.
+- Server backs up and restores state after restarts.
+
+### Misc changes
+- Changed assembly name to "GUI" and "GUI.Shared"
+- Added CDM website: https://cdm.maxrumsey.xyz
+
+## v0.6.3
+### Bugfixes
+- Fixed issue with alt-tower modes not opening on launch.
+- Fixed some graphical issues with the ConnStat panel
+- Changed focus behaviour to be a little more tolerable.
+## v0.6.2
+### Features
+- OzStrips automatically manages the list of aerodromes in the selection window, considering Position / Sectors selected.
+- Added auto-open feature when moving to a tower position.
+- Added toggle-able Circuit bay.
+- Added ability to see online controllers.
+- OzStrips grabs focus on mouse entering the form in a more smart manner.
+- Added ability to Ctrl-Click a strip to move it under or up and over a bar.
+
+### Bugfixes
+- Prevent issues with multiple modals showing up at once.
+- Made SmartResized=Disabled a lot more functional.
+- Various performance improvements on resize / aerodrome change etc.
+- Prevent improper socket client behaviour when we disconnect from VATSIM.
+- Fixed bug where strip could be accidentally forced when trying to drop a bar.
+
+### Misc changes
+- Refactored GUI supporting code out of the MainForm class. General cleanup.
+- Rewrote global aerodrome state management.
+- Added ability to customise bay layouts.
+- Refreshed menu strip view options.
+- Various cleanups of how aerodrome changes are managed.
+- Version checking / warning can be disabled by profile.
+
+## v0.6.1
+### Features
+- When strip is picked, bay scrollbar is locked to always show the strip.
+- Added QuickSearch window (Ctr+F) to search for strips.
+- Pressing Alt-X again will remove a "XXX CROSS XXX" bar.
+- Reenabled auto-sort of PREA strips option.
+
+### Bugfixes
+- Rewrote pick/depick code to prevent needless interaction with vatSys, and reduce complexity.
+## v0.6.0
+### Features
+- Added Local / Circuit strip type (pink).
+- Added ability to flip/flop ADEP-ADEP strips between arr, loc and dep modes.
+- Added "CIRCUIT AREA RELEASED" bar.
+- Inhibited strip coordination for local strips.
+- Made Sweatbox Error message less annoying.
+- Putting a strip into the PREA bay deactivates it, allowing changes.
+
+### Bugfixes
+- On a strip refile, data is properly refreshed.
+- Disabled ALPHA sort of PREA strips pending bugfix.
+
+### Misc Changes
+- Changed how server correlates server strips with client strips.
+
+## v0.5.7
+### Features
+- Added text pilot strip field.
+- Added PDC indicator in place of SSR asterix.
+- Pilots who disconnect and reconnect will not lose their strip.
+- Right click PDC field to open PM window.
+### Bugfixes
+- Pilots who refile on the ground will not have old valid routing data shown.
+- Fixed issue where OzStrips would scroll when clicking on form when OzStrips is not focused.
+
+## v0.5.6
+### Features
+- Added warning to SSR field when an aircraft isn't squawking correct code / mode C in TAXI or superior bay.
+
+- Changed how BLK levels are displayed.
+
+- Pick or de-picking a strip also picks the corresponding PREA track.
+
+- Picking a ground track will also pick the air/ normal strip (and vice-versa).
+
+- The first waypoint will (should) always display the first waypoint where the flight planned route is commenced. (No MLs / TESATs)
+
+- At SY and AS, SIDs with transitions will have the SID TRIGGER box be highlighted, and on hover will display the name of the transition.
+
+### Bugfixes
+- Fixed issue where when an aircraft refiles without disconnecting, UI would display the new FDR elements, but clicking on the RWY / SID field would display details from the original FDR.
+
+## v0.5.5
+### Bugfixes
+- Refactored how bays display / are layed out in 1/2 col modes.
+
+- Changed how first waypoint is displayed.
+## v0.5.4
+### Bugfixes
+- Added fix for HDG not being removed from GLOP when removed from popup window.
+
+### Features
+- Added alert when an aircraft with a radar SID without a heading is placed in the holding point / runway / departure bay.
+
+## v0.5.3
+### Bugfixes
+- Fixes issues with the route-parser.
+### Features
+- Preactive strips are now automatically sorted alphabetically, toggleable in settings.
+
+## v0.5.2
+### Features
+- Added several WF features including highlights for aircraft with STS/STATE
+- Strips become coordinated when moved into the cleared bay.
+- ~~PREA strips are ordered alphabetically.~~ *Pending end of WF*
+
+### Bugfixes
+- Fixed error caused by empty routes in FDR.
+- Fix issues with non-All View Modes.
+- Fixed some issues with strip caching.
+- Fixed issue with client not reconnecting after an extended server downtime.
+- Fixed error when MainForm is accessed while disposed.
+
+## v0.5.1
+### Bugfixes
+- Fixed bug caused when OzStrips closes as a connection is trying to establish.
+
+## v0.5.0
+### Features
+- Completely rewrote the server & client network communication system.
+- Alert comes up for a VFR aircraft with a SID.
+- Improve some error handling.
+- Fixed some issues with loading of bays.
+
+## v0.4.5
+### Bugfixes
+- Fixed issue with SID field actions in new strip
+- Temporarily disabled "View" modes as they are broken
+- Fixed error caused by iterating through the list of radar tracks.
+
+## v0.4.4
+### Features
+- Added ability to create strip bars
+- Completely rewrote strip rendering logic
+    - Reduced load time when switching between aerodromes
+- Added move to next bar (ctr up/down), cross (X), Inhibit (backspace) keyboard commands.
+- Improved error reporting.
+- Resized some controls.
+### Bugfixes
+- Fixed bug where view mode is not preserved on form resize.
+
+## v0.4.3
+### Bugfixes
+- Fixed leaking of winforms controls on disposal.
+
+## v0.4.2
+### Bugfixes
+- Fixed race condition causing a NRE
+- Fixed bug with error message reported.
+- Fixed bug with error message related to network connections.
+- Optimised some control creation.
+
+## v0.4.1
+### Features
+- Made OzStrips responsive to changes in window size.
+- Added the tiny strip.
+- Added the ability to customise aerodrome list.
+- Added a few keyboard commands.
+- Added ability to use OzStrips on the sweatbox.
+- Added the reroute menu.
+- Added aircraft-types to routes.
+- Added error reporting to server.
+
+### Bugfixes
+- Fixed bug with cruising altitude being above F410 and causing a NSCA alert.
+- Optimised strips and moving between aerodromes.
+- Fixed issue where server connection light would not update on super fast connections.
+
+## v0.3.7
+### Bugfixes
+- Fix crashing issues.
+- Fix strips of deleted aircraft from hanging around.
+
+### Features
+- Adds small strips.
+- Add ability to use vatSys CFL/Strip/Runway dropdowns.
+
+## v0.3.6
+### Bugfixes
+- Fixed bug where selecting the strip of a disconnected aircraft would cause a CTD.
+
+## v0.3.4
+### Features
+- Left click on vatSys air/ground track will select relevant strip (and vice versa).
+- Added error popup when a connection fails to establish.
+- Added link to Changelog.
+### Bugfixes
+- Fixed issue where the SID primary waypoint was being inadvertently readded.
+### Misc
+- A large amount of backend code was rewritten.
+- Majority of code was documented. (Thanks Glenn!)
+- Server-side changes to caching of strips, as well as to how METAR and ATIS codes were fetched.

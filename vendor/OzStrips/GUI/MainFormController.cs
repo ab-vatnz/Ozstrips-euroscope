@@ -1,0 +1,1337 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Drawing;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Media;
+using System.Reflection;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Windows.Input;
+using GUI.Connector;
+using MaxRumsey.OzStripsPlugin.GUI.Controls;
+using MaxRumsey.OzStripsPlugin.GUI.Shared;
+using vatsys;
+
+namespace MaxRumsey.OzStripsPlugin.GUI;
+
+/// <summary>
+/// ViewModel equivalent for the MainForm.
+/// </summary>
+public class MainFormController : IDisposable, IStripsWindow
+{
+    private FormWindowState _lastState = FormWindowState.Minimized;
+    private bool _postresizechecked = true;
+    private string _clientsOnline = string.Empty;
+    private string _layoutName = "All";
+
+    private readonly string _defaultLayoutName;
+
+    private readonly MainForm _mainForm;
+    private readonly Timer _timer;
+    private BayManager _bayManager;
+    private SocketConn _socketConn;
+    private string _metar = string.Empty;
+    private bool _readyForConnection;
+    private bool _permitPDCSound = true;
+    private Action<object, EventArgs>? _defaultLayout;
+    private Font? _connWindowFont;
+    private readonly StringFormat _connWindowFormat = new() { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+
+    /// <summary>
+    /// Gets the current instance of the MainForm controller.
+    /// </summary>
+    public static MainFormController? Instance { get; private set; }
+
+    /// <summary>
+    /// Gets a value indicating whether or not a connection can be made to the server.
+    /// </summary>
+    public static bool ReadyForConnection => Instance?._readyForConnection ?? false;
+
+    /// <summary>
+    /// Gets a value indicating whether or not the control key is being held down.
+    /// </summary>
+    public static bool ControlHeld => Keyboard.GetKeyStates(KeybindManager.ActiveKeybinds[KeybindManager.KEYBINDS.MODIFIER1]).HasFlag(KeyStates.Down);
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MainFormController"/> class.
+    /// </summary>
+    /// <param name="form">MainForm element.</param>
+    /// <param name="readyToConnect">Whether or not we are ready to initiate a connection.</param>
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
+    public MainFormController(MainForm form, bool readyToConnect)
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
+    {
+        Instance = this;
+        _mainForm = form;
+        _readyForConnection = readyToConnect;
+
+        _timer = new()
+        {
+            Interval = 100,
+        };
+
+        _timer.Tick += UpdateTimer;
+        _timer.Start();
+        _mainForm.AerodromeManager.InitialiseOnNewWindow();
+
+        _defaultLayoutName = _mainForm.AerodromeManager.Settings?.DefaultLayout ?? "All";
+        _layoutName = _defaultLayoutName;
+    }
+
+    /// <summary>
+    /// Initialises the class.
+    /// </summary>
+    /// <exception cref="Exception">Returned exception.</exception>
+    public void Initialize()
+    {
+        _bayManager = new(_mainForm.MainFLP);
+        _socketConn = new(_bayManager, this);
+
+        _socketConn.ServerTypeChanged += ServerTypeChanged;
+
+        _socketConn.AerodromeStateChanged += AerodromeStateChanged;
+        _socketConn.NewPDCsReceived += NewPDCsReceived;
+
+        _mainForm.AerodromeManager.ViewListChanged += AerodromeTypeChanged;
+        AerodromeListChanged(this, EventArgs.Empty);
+        AerodromeTypeChanged(this, EventArgs.Empty);
+
+        if (_defaultLayout is not null)
+        {
+            _bayManager.BayRepository.SetLayout(_defaultLayout);
+        }
+        else
+        {
+            throw new Exception("Default layout was not set. This means the config did not load correctly!");
+        }
+
+        if (_readyForConnection)
+        {
+            _ = _socketConn.Connect();
+        }
+
+        _bayManager.BayRepository.ConfigureAndSizeFLPs();
+        _mainForm.AerodromeManager.AerodromeListChanged += AerodromeListChanged;
+        KeybindManager.Reload();
+    }
+
+    private void NewPDCsReceived(object sender, string[] e)
+    {
+        // If these callsigns don't correspond to real aircraft
+        if (!e.Any(x => _bayManager.StripRepository.GetStrip(x) is not null) || !_permitPDCSound)
+        {
+            return;
+        }
+
+        try
+        {
+            using var stream = new MemoryStream(OzStripsConfig.NewPDC);
+            using var player = new SoundPlayer(stream);
+            player.Play();
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    private void ServerTypeChanged(object sender, EventArgs e)
+    {
+        SetTitle();
+    }
+
+    /// <summary>
+    /// Sets the title text.
+    /// </summary>
+    public void SetTitle()
+    {
+        _mainForm.Title = $"OzStrips :: {_bayManager.AerodromeName}-{_socketConn.Server} :: {_layoutName}";
+    }
+
+    /// <summary>
+    /// Disposes everything when the main form closes.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void FormClosing(object sender, System.ComponentModel.CancelEventArgs e)
+    {
+        Dispose();
+    }
+
+    private void AerodromeStateChanged(object sender, EventArgs e)
+    {
+        SetClientList(_bayManager.AerodromeState.Connections);
+        _mainForm.StatusPanel.Invalidate();
+
+        var specialLayoutChangeTriggered = false;
+
+        if (_bayManager.CircuitActive != _bayManager.AerodromeState.CircuitActive)
+        {
+            _bayManager.CircuitActive = _bayManager.AerodromeState.CircuitActive;
+            specialLayoutChangeTriggered = true;
+        }
+
+        if (_bayManager.CoordinatorBayActive != _bayManager.AerodromeState.CoordinatorBayActive)
+        {
+            _bayManager.CoordinatorBayActive = _bayManager.AerodromeState.CoordinatorBayActive;
+            specialLayoutChangeTriggered = true;
+        }
+
+        if (specialLayoutChangeTriggered)
+        {
+            _bayManager.BayRepository.ConfigureAndSizeFLPs(true);
+        }
+
+        ResetCDMRateTextBox();
+    }
+
+    private void AerodromeTypeChanged(object sender, EventArgs e)
+    {
+        _mainForm.ViewListToolStrip.DropDownItems.Clear();
+
+        var layouts = _mainForm.AerodromeManager.ReturnLayouts(_mainForm.AerodromeManager.GetAerodromeType(_bayManager.AerodromeName));
+        var bays = layouts.First(x => x.Name == _defaultLayoutName).Elements.Select(x => x.Bay);
+
+        var circuitBayDefined = bays.Any(x => x?.Circuit == true);
+        var coordinatorBayDefined = bays.Any(x => x?.Coordinator == true);
+
+        foreach (var layout in layouts)
+        {
+            var toolStripMenuItem = new ToolStripMenuItem
+            {
+                Text = layout.Name,
+            };
+
+            var action = (object sender, EventArgs e) =>
+            {
+                _bayManager.BayRepository.WipeBays();
+
+                var availableElements = new List<DTO.LayoutElement>();
+
+                foreach (var element in layout.Elements)
+                {
+                    // If this is the circuit bay and we don't have it enabled.
+                    if (element.Bay is null ||
+                        (element.Bay.Circuit && !_bayManager.CircuitActive))
+                    {
+                        continue;
+                    }
+
+                    // If this is the coordinator bay and we don't have it enabled.
+                    if (element.Bay is null ||
+                        (element.Bay.Coordinator && !_bayManager.CoordinatorBayActive))
+                    {
+                        continue;
+                    }
+
+                    availableElements.Add(element);
+                }
+
+                foreach (var element in availableElements)
+                {
+                    var types = element.Bay!.Types.ToList();
+
+                    // If circuit mode is enabled, don't have duplicate circuit bays
+                    if (_bayManager.CircuitActive && !element.Bay.Circuit && circuitBayDefined)
+                    {
+                        types.Remove(StripBay.BAY_CIRCUIT);
+                    }
+
+                    // If coordinator mode is enabled, don't have duplicate coordinate bays
+                    if (_bayManager.CoordinatorBayActive && !element.Bay.Coordinator && coordinatorBayDefined)
+                    {
+                        types.Remove(StripBay.BAY_COORDINATOR);
+                    }
+
+                    var bay = new Bay(types, _bayManager, _socketConn, element.Name, element.Column, element.Bay.CDMDisplay, availableElements.Count);
+                    bay.OnBarsChanged += (_, _) =>
+                    {
+                        try
+                        {
+                            UpdateMaps();
+                        }
+                        catch (Exception ex)
+                        {
+                            Util.LogError(ex);
+                        }
+                    };
+                }
+
+                _bayManager.BayRepository.ConfigureAndSizeFLPs();
+                _bayManager.BayRepository.ReloadStrips(_socketConn);
+                _layoutName = layout.Name;
+                SetTitle();
+            };
+
+            if (layout.Name == _defaultLayoutName)
+            {
+                _bayManager.BayRepository.SetLayout(action);
+                _defaultLayout = action;
+            }
+
+            toolStripMenuItem.Click += (sender, e) =>
+            {
+                _bayManager.BayRepository.SetLayout(action);
+
+                // there are better ways of doing this!
+                action(sender, e);
+            };
+
+            _mainForm.ViewListToolStrip.DropDownItems.Add(toolStripMenuItem);
+        }
+
+        // If bayrepo initialised, than directly call the layout func
+        if (!_bayManager.BayRepository.Initialised)
+        {
+            _bayManager.BayRepository.ConfigureAndSizeFLPs();
+        }
+
+        _defaultLayout?.Invoke(this, EventArgs.Empty);
+        _mainForm.Focus();
+    }
+
+    /// <summary>
+    /// Gets or sets the custom list of aerodromes.
+    /// </summary>
+    /// <param name="value">The list of aerodromes.</param>
+    public void SetCustomAerodromeList(List<string> value)
+    {
+        _mainForm.AerodromeManager.ManuallySetAerodromes = value;
+    }
+
+    /// <summary>
+    /// Updates release and crossing maps.
+    /// </summary>
+    public void UpdateMaps()
+    {
+        var fullName = _mainForm.AerodromeManager.Settings?.AutoMapAerodromes?.FirstOrDefault(x => x.ICAOCode == _bayManager.AerodromeName)?.FullName;
+        var bay = _bayManager.BayRepository.Bays.Find(x => x.BayTypes.Contains(StripBay.BAY_RUNWAY));
+
+        if (fullName is not null && bay is not null && bay.BayTypes.Contains(StripBay.BAY_RUNWAY) && !_mainForm.InhibitGroundMaps.Checked)
+        {
+            MapManager.SetApplicableMaps([.. bay.Strips.Where(x => x.Type == StripItemType.BAR).Select(x => x.BarText ?? string.Empty)], fullName);
+        }
+    }
+
+    /// <summary>
+    /// Marks whether or not a connection is ready to be established to the server.
+    /// </summary>
+    /// <param name="readyForConnection">Whether or not a connection can be made.</param>
+    public async void MarkConnectionReadiness(bool readyForConnection)
+    {
+        try
+        {
+            SetCircuitToolStripStatus();
+            _readyForConnection = readyForConnection;
+            if (_readyForConnection)
+            {
+                await _socketConn.Connect();
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Forces a resize event to redraw stripbays.
+    /// </summary>
+    public void ForceResize()
+    {
+        try
+        {
+            _bayManager.BayRepository.ConfigureAndSizeFLPs(true);
+            _bayManager.BayRepository.ConfigureAndSizeFLPs(); // double resize to take into account addition / subtraction of scroll bars.
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Sets the current aerodrome. Called by the GUI, and subsequently calls SetAerodrome() for various managers.
+    /// </summary>
+    /// <param name="name">The aerodrome name.</param>
+    public async void SetAerodrome(string name)
+    {
+        try
+        {
+            if (_bayManager != null)
+            {
+                _socketConn.MarkDesynchronised();
+                _bayManager.PurgeDataAndSetNewAerodrome(name, _socketConn);
+                SetCircuitToolStripStatus();
+                _ = _socketConn.SubscribeToAerodrome();
+                _mainForm.AerodromeLabel.Text = name;
+                SetATISCode("Z");
+                _mainForm.AerodromeManager.ConfigureAerodromeListForNewAerodrome(name);
+                SetTitle();
+                _mainForm.ReleaseButton.Enabled = _mainForm.AerodromeManager.Settings?.AutoMapAerodromes?.Any(x => x.ICAOCode == _bayManager.AerodromeName) == true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Moves to the next/previous aerodrome.
+    /// </summary>
+    /// <param name="direction">Direction to move in.</param>
+    public void MoveLateralAerodrome(int direction)
+    {
+        var index = 0;
+        for (var i = 0; i < _mainForm.AerodromeManager.AerodromeList.Count; i++)
+        {
+            if (_mainForm.AerodromeManager.AerodromeList[i] == _bayManager.AerodromeName)
+            {
+                index = i;
+            }
+        }
+
+        index += direction;
+        if (index >= _mainForm.AerodromeManager.AerodromeList.Count)
+        {
+            index = 0;
+        }
+
+        if (index < 0)
+        {
+            index = _mainForm.AerodromeManager.AerodromeList.Count - 1;
+        }
+
+        SetAerodrome(_mainForm.AerodromeManager.AerodromeList[index]);
+    }
+
+    /// <summary>
+    /// Sets the METAR information. Called from SocketConn.
+    /// </summary>
+    /// <param name="metar">The METAR.</param>
+    public void SetMetar(string metar)
+    {
+        if (metar != _metar)
+        {
+            _metar = metar;
+            _mainForm.MetarToolTip.RemoveAll();
+            _mainForm.MetarToolTip.SetToolTip(_mainForm.AerodromeLabel, metar);
+        }
+    }
+
+    /// <summary>
+    /// Sets the list of online clients. Called from SocketConn.
+    /// </summary>
+    /// <param name="clients">The list of clients.</param>
+    public void SetClientList(List<string> clients)
+    {
+        clients = clients.ToList();
+        clients.Sort();
+        clients.Remove(Network.Callsign);
+        var str = string.Join("\n", clients);
+
+        if (str != _clientsOnline)
+        {
+            _clientsOnline = str;
+            _mainForm.ClientsToolTip.RemoveAll();
+            _mainForm.ClientsToolTip.SetToolTip(_mainForm.StatusPanel, str);
+        }
+    }
+
+    /// <summary>
+    /// Sets the connection status, green is connected, orange/red if not.
+    /// </summary>
+    public void SetConnStatus()
+    {
+        _mainForm.StatusPanel.Invalidate();
+    }
+
+    /// <summary>
+    /// Sets the selected track from vatSys.
+    /// </summary>
+    /// <param name="callsign">Selected Callsign.</param>
+    /// <param name="ground">Whether or not the track is a ground track.</param>
+    public void SetSelectedTrack(string? callsign, bool ground)
+    {
+        try
+        {
+            _bayManager.SetPickedCallsignFromVatsys(callsign, ground);
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Disconnects from VATSIM.
+    /// </summary>
+    public void DisconnectVATSIM()
+    {
+        try
+        {
+            _bayManager.WipeStrips();
+            _bayManager.StripRepository.ClearStrips();
+            _socketConn.Disconnect();
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Forces a strip.
+    /// </summary>
+    /// <param name="sender">Sending object.</param>
+    /// <param name="e">EventArgs.</param>
+    /// <returns>Task.</returns>
+    public async Task ForceStrip(object? sender, EventArgs? e)
+    {
+        await _bayManager.ForceStrip(_socketConn);
+    }
+
+    /// <summary>
+    /// Updates the flight data record.
+    /// </summary>
+    /// <param name="fdr">The flgiht data record.</param>
+    /// <remarks>Triggered from Connector plugin.</remarks>
+    /// <returns>Task.</returns>
+    public async Task UpdateFDR(FDP2.FDR fdr)
+    {
+        try
+        {
+            var strip = await _bayManager.StripRepository.UpdateFDR(fdr, _bayManager, _socketConn);
+
+            var pilot = Network.GetOnlinePilots.Find(x => x.Callsign == fdr.Callsign);
+
+            // Not sure how well this will work...
+            // maybe move to radar track update?
+            // only send for CDM relevant aircraft?
+            if (strip is not null && pilot is not null && pilot.GroundSpeed > 50)
+            {
+                _socketConn.SendCDMUpdate(strip, CDMState.COMPLETE);
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Handles a pilot disconnecting from vatSys.
+    /// </summary>
+    /// <param name="args">Event arguments.</param>
+    public void HandleDisconnect(Network.PilotUpdateEventArgs args)
+    {
+        try
+        {
+            if (!args.Removed || args.UpdatedPilot is null)
+            {
+                return;
+            }
+
+            var strip = _bayManager.StripRepository.GetStrip(args.UpdatedPilot.Callsign);
+            if (strip is not null)
+            {
+                _bayManager.BayRepository.DeleteStrip(strip);
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Toggles the crossing bar in the runway bay.
+    /// </summary>
+    public void ToggleCrossBar()
+    {
+        var autoMapAerodrome = _mainForm.AerodromeManager.Settings?.AutoMapAerodromes?.FirstOrDefault(x => x.ICAOCode == _bayManager.AerodromeName);
+
+        if (autoMapAerodrome is not null)
+        {
+            DropDown.ShowCrossingOrReleaseDropDown(autoMapAerodrome, "Crossing", _bayManager);
+        }
+
+        // If we didnt't delete a crossing bar, add one.
+        else if (!_bayManager.DeleteBarByParams("Runway", 3, "XXX CROSSING XXX"))
+        {
+            _bayManager.AddBar("Runway", 3, "XXX CROSSING XXX");
+        }
+    }
+
+    /// <summary>
+    /// Toggles the released bar in the runway bay.
+    /// </summary>
+    public void ToggleReleaseBar()
+    {
+        var autoMapAerodrome = _mainForm.AerodromeManager.Settings?.AutoMapAerodromes?.FirstOrDefault(x => x.ICAOCode == _bayManager.AerodromeName);
+
+        if (autoMapAerodrome is not null)
+        {
+            DropDown.ShowCrossingOrReleaseDropDown(autoMapAerodrome, "Released", _bayManager);
+        }
+    }
+
+    /// <summary>
+    /// Overrides keypress event to capture all keypresses.
+    /// </summary>
+    /// <param name="msg">Sender.</param>
+    /// <param name="keyData">Key.</param>
+    /// <returns>Handled.</returns>
+    public bool? ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        try
+        {
+            var keys = KeybindManager.GetPressedKeys();
+            if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.UP)) && keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.MODIFIER1)))
+            {
+                _bayManager.PositionToNextBar(1);
+                return true;
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.DOWN)) && keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.MODIFIER1)))
+            {
+                _bayManager.PositionToNextBar(-1);
+                return true;
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.CROSS)) && keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.MODIFIER2)))
+            {
+                ToggleCrossBar();
+
+                return true;
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.RELEASE)) && keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.MODIFIER2)))
+            {
+                ToggleReleaseBar();
+
+                return true;
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.FIND)) && keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.MODIFIER1)))
+            {
+                ShowQuickSearch();
+
+                return true;
+            }
+
+            if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.UP)))
+            {
+                _bayManager.PositionKey(1);
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.DOWN)))
+            {
+                _bayManager.PositionKey(-1);
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.QUEUE)))
+            {
+                _bayManager.QueueUp();
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.TRIGGER)))
+            {
+                _bayManager.SidTrigger();
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.COCK)))
+            {
+                _bayManager.CockStrip();
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.AERODROME_LEFT)))
+            {
+                MoveLateralAerodrome(-1);
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.AERODROME_RIGHT)))
+            {
+                MoveLateralAerodrome(1);
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.INHIBIT)))
+            {
+                _bayManager.Inhibit();
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.CROSS)))
+            {
+                _bayManager.CrossStrip();
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.FLIP)))
+            {
+                _bayManager.FlipFlopStrip();
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.LAST_TRANSMIT_PICK)))
+            {
+                _bayManager.PickLastTransmit();
+            }
+            else if (keys.Contains(KeybindManager.GetKey(KeybindManager.KEYBINDS.AUTOFILL)))
+            {
+                _bayManager.FillStrip();
+            }
+            else
+            {
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Sets the ATIS code. Called from SocketConn.
+    /// </summary>
+    /// <param name="code">The ATIS code.</param>
+    public void SetATISCode(string code)
+    {
+        _mainForm.ATISLabel.Text = code;
+    }
+
+    /// <summary>
+    /// Gets a list of open modals.
+    /// </summary>
+    /// <returns>Open modals.</returns>
+    public static List<BaseModal> GetOpenModals()
+    {
+        var list = new List<BaseModal>();
+
+        foreach (var form in Application.OpenForms)
+        {
+            if (form is BaseModal modal)
+            {
+                list.Add(modal);
+            }
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether or not the settings window is open.
+    /// </summary>
+    public static bool IsSettingsOpen
+    {
+        get
+        {
+            return GetOpenModals().Any(x => x.Child is SettingsWindowControl);
+        }
+    }
+
+    /// <summary>
+    /// Opens the defined input field.
+    /// </summary>
+    /// <param name="strip">Strip.</param>
+    /// <param name="type">Label name.</param>
+    public static void OpenWindow(Strip strip, string type)
+    {
+        switch (type)
+        {
+            case "OZSTRIPS_BAY":
+                strip.Controller.OpenCLXBayModal("std");
+                break;
+            case "OZSTRIPS_CLX":
+                strip.Controller.OpenCLXBayModal("clx");
+                break;
+            case "OZSTRIPS_REMARKS":
+                strip.Controller.OpenCLXBayModal("remark");
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void UpdateTimer(object sender, EventArgs e)
+    {
+        try
+        {
+            if (!_mainForm.Visible)
+            {
+                return;
+            }
+
+            if (!_postresizechecked)
+            {
+                _postresizechecked = true;
+                _bayManager.BayRepository.ConfigureAndSizeFLPs();
+            }
+
+            if (!_mainForm.IsDisposed)
+            {
+                _mainForm.Invoke(() =>
+                {
+                    _mainForm.TimerTextBox.Text = DateTime.UtcNow.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+                    _bayManager.ForceRerender();
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+
+        try
+        {
+            var openPDCs = _bayManager.AerodromeState.PDCRequests.Count(x =>
+            {
+                var strip = _bayManager.StripRepository.GetStrip(x.Callsign);
+
+                if (strip is null)
+                {
+                    return false;
+                }
+
+                return x.Flags.HasFlag(PDCRequest.PDCFlags.REQUESTED) && !strip.PDCFlags.HasFlag(PDCRequest.PDCFlags.SENT);
+            });
+
+            var autoFillAvailable = _bayManager.AutoAssigner?.IsFunctional ?? false;
+
+            _mainForm.OpenPDCs.Text = $"Pending PDCs: {openPDCs}";
+            _mainForm.OpenPDCs.BackColor = openPDCs > 0 ? Color.LightBlue : Color.Transparent;
+            _mainForm.AutoFillAvailable.BackColor = autoFillAvailable ? Color.LightGreen : Color.Red;
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+
+        try
+        {
+            UpdateMaps();
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    internal void MainFormSizeChanged(object sender, EventArgs e)
+    {
+        try
+        {
+            _postresizechecked = false;
+            _bayManager?.BayRepository.ConfigureAndSizeFLPs();
+            _mainForm.SetControlBarScrollBar();
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    internal void AddAerodrome(string name)
+    {
+        var toolStripMenuItem = new ToolStripMenuItem
+        {
+            Text = name,
+        };
+
+        toolStripMenuItem.Click += (sender, e) => SetAerodrome(name);
+        _mainForm.AerodromeListToolStrip.DropDownItems.Add(toolStripMenuItem);
+    }
+
+    internal void Bt_inhibit_Click(object sender, EventArgs e)
+    {
+        _bayManager.Inhibit();
+    }
+
+    internal void ToggleCircuitBay(object sender, EventArgs e)
+    {
+        try
+        {
+            _socketConn.RequestCircuit(!_bayManager.CircuitActive);
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    internal void ToggleCoordBay(object sender, EventArgs e)
+    {
+        try
+        {
+            _socketConn.RequestCoordinator(!_bayManager.CoordinatorBayActive);
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    internal void PDCSoundToggle(object sender, EventArgs e)
+    {
+        try
+        {
+            _permitPDCSound = !_permitPDCSound;
+            _mainForm.PDCSoundMenuItem.Checked = _permitPDCSound;
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    internal void ToggleCDM(object sender, EventArgs e)
+    {
+        try
+        {
+            if (_bayManager.AerodromeState.AerodromeCode == _bayManager.AerodromeName)
+            {
+                var param = new CDMParameters()
+                {
+                    Enabled = !(_bayManager.AerodromeState.CDMParameters.Enabled ?? false),
+                };
+
+                _socketConn.SendCDMParameters(param);
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Opens the cross bar menu.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void CrossButton_Click(object sender, EventArgs e)
+    {
+        ToggleCrossBar();
+    }
+
+    /// <summary>
+    /// Opens the release bar menu.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void ReleaseButton_Click(object sender, EventArgs e)
+    {
+        ToggleReleaseBar();
+    }
+
+    /// <summary>
+    /// Shows the SignalR message log.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void ShowMessageList_Click(object sender, EventArgs e)
+    {
+        var modalChild = new MsgListDebug(_socketConn);
+        var bm = new BaseModal(modalChild, "Msg List");
+        bm.Show(_mainForm);
+    }
+
+    /// <summary>
+    /// Opens the ATIS override window.
+    /// </summary>
+    /// <param name="sender">Sender.</param>
+    /// <param name="e">EventArgs.</param>
+    public void OverrideATISClick(object sender, EventArgs e)
+    {
+        var modalChild = new DebugSetATIS();
+        var bm = new BaseModal(modalChild, "Override ATIS Code");
+        bm.ReturnEvent += SaveAmendedAtis;
+        bm.Show(_mainForm);
+    }
+
+    private void SaveAmendedAtis(object sender, ModalReturnArgs e)
+    {
+        var control = ((BaseModal)sender).Child as DebugSetATIS;
+
+        _bayManager.AerodromeState.ATIS = control?.ATISText ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Opens the settings window.
+    /// </summary>
+    public void ShowQuickSearch()
+    {
+        var modalChild = new QuickSearch(_bayManager);
+        var bm = new BaseModal(modalChild, "Quick Search");
+        modalChild.BaseModal = bm;
+        bm.ReturnEvent += modalChild.ModalReturned;
+        bm.Show(MainForm.MainFormInstance);
+    }
+
+    /// <summary>
+    /// Called when the main form loads.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void MainForm_Load(object sender, EventArgs e)
+    {
+        SetConnStatus();
+        _mainForm.SetSmartResizeCheckBox();
+    }
+
+    /// <summary>
+    /// Called when a character is inserted into the aerodrome selector.
+    /// </summary>
+    /// <param name="sender">The ender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void AerodromeSelectorKeyDown(object sender, KeyPressEventArgs e)
+    {
+        if (_bayManager != null && e.KeyChar == Convert.ToChar(Keys.Enter, CultureInfo.InvariantCulture))
+        {
+            SetAerodrome(_mainForm.EnteredAerodrome.ToUpper(CultureInfo.InvariantCulture));
+
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Called when an element is entered into the CDMRate text box.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Event args.</param>
+    public void CDMRateKeyDown(object sender, KeyPressEventArgs e)
+    {
+        try
+        {
+            if (_bayManager != null && e.KeyChar == Convert.ToChar(Keys.Enter, CultureInfo.InvariantCulture))
+            {
+                var success = int.TryParse(_mainForm.CDMRateTextBox.Text, out var rate);
+
+                if (!success || rate is <= 0 or >= 99)
+                {
+                    ResetCDMRateTextBox();
+                    return;
+                }
+
+                var period = TimeSpan.FromMinutes(60f / rate);
+
+                _socketConn.SendCDMParameters(new()
+                {
+                    DefaultRate = period,
+                });
+
+                e.Handled = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Resets the CDM rate text box to what the server has defined.
+    /// </summary>
+    public void ResetCDMRateTextBox()
+    {
+        var period = _bayManager.AerodromeState.CDMParameters.DefaultRate ?? TimeSpan.FromMinutes(2);
+        var rate = (int)(60 / period.TotalMinutes);
+
+        _mainForm.CDMRateTextBox.Text = rate.ToString(CultureInfo.InvariantCulture);
+
+        _mainForm.CDMRateTextBox.Enabled = !_bayManager.AerodromeState.CDMRateLocked;
+    }
+
+    /// <summary>
+    /// Opens the bar creator window.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void BarCreatorClick(object sender, EventArgs e)
+    {
+        var modalChild = new BarCreator(_bayManager);
+        var bm = new BaseModal(modalChild, "Add Bar");
+        bm.ReturnEvent += modalChild.ModalReturned;
+        bm.Show(_mainForm);
+    }
+
+    /// <summary>
+    /// Called when the main form resizes.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void MainForm_Resize(object sender, EventArgs e)
+    {
+        if (_mainForm.WindowState != _lastState)
+        {
+            _lastState = _mainForm.WindowState;
+            _postresizechecked = false;
+            _bayManager?.BayRepository.ConfigureAndSizeFLPs();
+            _mainForm.SetControlBarScrollBar();
+        }
+    }
+
+    /// <summary>
+    /// Saves the smart resize column mode, and calls a relayout.
+    /// </summary>
+    /// <param name="cols">Amount of cols to set it to.</param>
+    public void SetSmartResizeColumnMode(int cols)
+    {
+        Util.SetEnvVar("SmartResize", cols);
+        _mainForm.SetSmartResizeCheckBox();
+        _bayManager.BayRepository.ReloadStrips(_socketConn);
+    }
+
+    /// <summary>
+    /// Enables or disables the set circuit tool strip based on connection and aerodrome type.
+    /// </summary>
+    public void SetCircuitToolStripStatus()
+    {
+        var circuitBayEnabled = _mainForm.AerodromeManager.CircuitBayEnabled(_bayManager.AerodromeName);
+        var canSend = _socketConn.HaveSendPerms;
+
+        _mainForm.ToggleCircuitToolStrip.Enabled = circuitBayEnabled && canSend;
+    }
+
+    /// <summary>
+    /// Paints the connection status box.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void ConnStatusPaint(object sender, PaintEventArgs e)
+    {
+        if (e?.Graphics is null || _mainForm.IsDisposed || !_mainForm.StatusPanel.IsHandleCreated)
+        {
+            return;
+        }
+
+        try
+        {
+            var borderWidth = 5;
+            var g = e.Graphics;
+            g.Clear(Color.Purple);
+
+            using var coreBrush = new SolidBrush(_socketConn.State switch
+            {
+                SocketConn.ConnectionState.RECONNECTING => Color.Orange,
+                SocketConn.ConnectionState.CONNECTED => Color.Green,
+                SocketConn.ConnectionState.DISCONNECTED => Color.OrangeRed,
+                _ => Color.OrangeRed,
+            });
+            var outerColor = _bayManager.AerodromeState.Connections?.Count > 1 ? Color.Blue : coreBrush.Color;
+            using var outerBrush = new SolidBrush(outerColor);
+            using var textBrush = new SolidBrush(Color.Black);
+
+            try
+            {
+                _connWindowFont ??= new Font("Terminus (TTF)", 12F, FontStyle.Bold);
+            }
+            catch
+            {
+            }
+
+            g.FillRectangle(outerBrush, e.ClipRectangle);
+            g.FillRectangle(coreBrush, e.ClipRectangle.X + borderWidth, e.ClipRectangle.Y + borderWidth, e.ClipRectangle.Width - (borderWidth * 2), e.ClipRectangle.Height - (borderWidth * 2));
+            g.DrawString("CONN STAT", _connWindowFont ?? Form.DefaultFont, textBrush, e.ClipRectangle, _connWindowFormat);
+        }
+        catch (InvalidOperationException)
+        {
+            // GDI+ can throw if control is disposed or graphics invalid; ignore to avoid crashing the process.
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Flip-flops the selected strip.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void FlipFlopStrip(object sender, EventArgs e)
+    {
+        _bayManager.FlipFlopStrip();
+    }
+
+    /// <summary>
+    /// Gets a strip correlated for an FDR.
+    /// </summary>
+    /// <param name="fdr">FDR.</param>
+    /// <returns>Strip if found.</returns>
+    public Strip? GetStripByFDR(FDP2.FDR fdr)
+    {
+        return _bayManager.StripRepository.GetStrip(fdr.Callsign);
+    }
+
+    /// <summary>
+    /// Opens the settings window.
+    /// </summary>
+    /// <param name="sender">Sender.</param>
+    /// <param name="e">Args.</param>
+    public void ShowSettings(object sender, EventArgs e)
+    {
+        if (IsSettingsOpen)
+        {
+            return;
+        }
+
+        var modalChild = new SettingsWindowControl(_socketConn, _mainForm.AerodromeManager.ManuallySetAerodromes);
+        var bm = new BaseModal(modalChild, "OzStrips Settings");
+        bm.ReturnEvent += modalChild.ModalReturned;
+        bm.Show(_mainForm);
+    }
+
+    /// <summary>
+    /// Opens the settings window.
+    /// </summary>
+    /// <param name="sender">Sender.</param>
+    /// <param name="e">Args.</param>
+    public void ShowKeySettings(object sender, EventArgs e)
+    {
+        var modalChild = new KeybindChanger();
+        var bm = new BaseModal(modalChild, "OzStrips Key Settings");
+        bm.ShowDialog(_mainForm);
+    }
+
+    /// <summary>
+    /// Called when the main form closes.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Event args.</param>
+    public void MainForm_FormClosed(object sender, FormClosedEventArgs e)
+    {
+        _mainForm.AerodromeManager.PreviouslyClosed = true;
+    }
+
+    /// <summary>
+    /// Called when the main form moves.
+    /// </summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="e">Eventargs.</param>
+    public void MainForm_Move(object sender, EventArgs e)
+    {
+        _mainForm.StatusPanel.Invalidate();
+    }
+
+    /// <summary>
+    /// Disposes all required elements.
+    /// </summary>
+    public void Dispose()
+    {
+        _timer?.Stop();
+        _timer?.Dispose();
+        if (!_mainForm.IsDisposed && _mainForm.StatusPanel.IsHandleCreated)
+        {
+            _mainForm.StatusPanel.Paint -= ConnStatusPaint;
+        }
+
+        _mainForm.AerodromeManager.AerodromeListChanged -= AerodromeListChanged;
+
+        _socketConn.DisposeAsync().AsTask().ContinueWith(t => Util.LogError(t.Exception?.InnerException ?? new Exception("Failed to dispose of SocketConn.")), TaskContinuationOptions.NotOnRanToCompletion);
+        Instance = null;
+        _connWindowFont?.Dispose();
+        _connWindowFormat.Dispose();
+    }
+
+    private void AerodromeListChanged(object sender, EventArgs e)
+    {
+        foreach (var item in _mainForm.AerodromeListToolStrip.DropDownItems.OfType<ToolStripItem>().ToArray())
+        {
+            if (item.Tag is null)
+            {
+                _mainForm.AerodromeListToolStrip.DropDownItems.Remove(item);
+            }
+        }
+
+        foreach (var item in _mainForm.AerodromeManager.AerodromeList)
+        {
+            AddAerodrome(item);
+        }
+
+        if (_mainForm.AerodromeManager.AutoOpenAerodrome != null &&
+            _bayManager?.AerodromeName != _mainForm.AerodromeManager.AutoOpenAerodrome)
+        {
+            try
+            {
+                SetAerodrome(_mainForm.AerodromeManager.AutoOpenAerodrome);
+            }
+            catch (Exception ex)
+            {
+                Util.LogError(ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Invokes an action on the main form.
+    /// </summary>
+    /// <param name="act">The action to invoke.</param>
+    /// <returns>Returning value of the action.</returns>
+    public object Invoke(Action act)
+    {
+        return _mainForm.Invoke(act);
+    }
+
+    /// <inheritdoc/>
+    public StripDTO? GetDTO(string callsign)
+    {
+        var strip = _bayManager.StripRepository.GetStrip(callsign);
+
+        return strip is null ? null : (StripDTO)strip;
+    }
+
+    /// <inheritdoc/>
+    public bool InQueue(StripKey key)
+    {
+        var strip = _bayManager.StripRepository.GetStrip(key);
+
+        if (strip is null)
+        {
+            return false;
+        }
+
+        var bay = _bayManager.BayRepository.FindBay(strip);
+
+        if (bay is null)
+        {
+            return false;
+        }
+
+        var stripPos = bay.Strips.FindIndex(x => x.Strip == strip);
+        var barPos = bay.Strips.FindIndex(x => x.BarText == "\a");
+
+        return stripPos < barPos;
+    }
+
+    /// <inheritdoc/>
+    public CDMResultDTO? GetCDMResult(StripKey key)
+    {
+        return _bayManager.AerodromeState.CDMResults.Find(x => x.Aircraft.Key.Matches(key));
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the main form is visible.
+    /// </summary>
+    public bool Visible
+    {
+        get
+        {
+            return _mainForm.Visible;
+        }
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the main form is disposed.
+    /// </summary>
+    public bool IsDisposed
+    {
+        get
+        {
+            return _mainForm.IsDisposed;
+        }
+    }
+
+    /// <summary>
+    /// Gets the current main form handle.
+    /// </summary>
+    public IntPtr Handle
+    {
+        get
+        {
+            return _mainForm.Handle;
+        }
+    }
+}

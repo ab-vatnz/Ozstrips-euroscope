@@ -1,0 +1,115 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net481</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <EmbeddedResourceUseDependentUponConvention>true</EmbeddedResourceUseDependentUponConvention>
+    <RootNamespace>MaxRumsey.OzStripsPlugin.GUI</RootNamespace>
+    <AssemblyName>OzStripsEuroScope.Helper</AssemblyName>
+    <ApplicationIcon>ozstrips.ico</ApplicationIcon>
+    <CefSharpBuildAction>Content</CefSharpBuildAction>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>1701;1702;CA1502;SA1201;SA1202;SA1204;SA1214;CA1506</NoWarn>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="ozstrips.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0-rc.2.24474.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="SkiaSharp" Version="3.0.0-preview.4.1" />
+    <PackageReference Include="SkiaSharp.Views.WindowsForms" Version="3.0.0-preview.4.1" />
+    <PackageReference Include="System.Resources.Extensions" Version="9.0.0" />
+    <PackageReference Include="System.Text.Json" Version="9.0.0-rc.2.24473.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OzStripsEuroScope.VatSysShim\OzStripsEuroScope.VatSysShim.csproj" />
+    <ProjectReference Include="..\..\vendor\OzStrips\GUI.Connector\GUI.Connector.csproj" />
+    <ProjectReference Include="..\..\vendor\OzStrips\GUI.Shared\GUI.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="CDMStatsRenderController.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="BayRenderController.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="Controls\DebugSetATIS.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Controls\QuickSearch.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Controls\NoScrollPanel.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Update="Controls\PDCControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Controls\SettingsWindowControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="OzStripsConfig.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>OzStripsConfig.resx</DependentUpon>
+    </Compile>
+    <Compile Update="Properties\OzStripsSettings.Designer.cs">
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>OzStripsSettings.settings</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="OzStripsConfig.resx">
+      <Generator>PublicResXFileCodeGenerator</Generator>
+      <LastGenOutput>OzStripsConfig.Designer.cs</LastGenOutput>
+      <CustomToolNamespace>MaxRumsey.OzStripsPlugin.GUI</CustomToolNamespace>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="ozstrips.ico" />
+    <None Update="AerodromeSettings.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="AutoFill\**\*.yml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="libSkiaSharp.adll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Properties\OzStripsSettings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>OzStripsSettings.Designer.cs</LastGenOutput>
+    </None>
+    <None Update="Strip.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="TerminusTTF-Bold_B.ttf">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="terminus.fon">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>
