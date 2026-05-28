@@ -1,0 +1,79 @@
+name: Sync VATNZ OzStrips vendor
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: OzStrips-NZ branch or ref to vendor
+        required: true
+        default: vatnz/main
+  schedule:
+    - cron: "10 18 * * 0"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Open vendor sync PR
+    runs-on: windows-latest
+    steps:
+      - name: Resolve inputs
+        id: vars
+        shell: bash
+        run: |
+          echo "source_ref=${{ github.event.inputs.source_ref || 'vatnz/main' }}" >> "$GITHUB_OUTPUT"
+          echo "sync_branch=sync/vatnz-ozstrips" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "${{ steps.vars.outputs.sync_branch }}" origin/main
+
+      - name: Update vendor snapshot
+        shell: pwsh
+        run: ./scripts/Sync-FromVatnzOzStrips.ps1 -SourceRef "${{ steps.vars.outputs.source_ref }}"
+
+      - name: Detect changes
+        id: changes
+        shell: bash
+        run: |
+          if git diff --quiet -- vendor/OzStrips; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No vendor changes to sync."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit vendor update
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git add vendor/OzStrips
+          git commit -m "Sync VATNZ OzStrips vendor"
+          git push --force origin "${{ steps.vars.outputs.sync_branch }}"
+
+      - name: Open or update PR
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh pr list --base main --head "${{ steps.vars.outputs.sync_branch }}" --state open --json number --jq '.[0].number' | grep -q '[0-9]'; then
+            echo "Sync PR already exists."
+          else
+            gh pr create \
+              --base main \
+              --head "${{ steps.vars.outputs.sync_branch }}" \
+              --title "Sync VATNZ OzStrips vendor" \
+              --body "Updates \`vendor/OzStrips\` from \`ab-vatnz/OzStrips-NZ-\` ref \`${{ steps.vars.outputs.source_ref }}\`.\n\nThis PR intentionally does not overwrite the adapted EuroScope source under \`src/OzStripsEuroScope.OzStripsGui\`. After merging, review upstream GUI/server changes and manually port anything the EuroScope bridge needs."
+          fi

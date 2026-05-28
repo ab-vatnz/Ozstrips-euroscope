@@ -151,6 +151,29 @@ Use `Settings -> Server -> Localhost FSD` in the OzStrips helper when testing ag
 - EuroScope and vaSys format SIDs/STARs differently. The helper displays a vaSys-style short form where appropriate while keeping EuroScope-format procedure/runway data for EuroScope flight plan writes.
 - When another controller is using vaSys OzStrips and you are using EuroScope OzStrips, both clients should sync through OzStrips as long as they are connected to the same aerodrome and server bucket.
 
+## Keeping In Sync With OzStrips
+
+Use `OzStrips-NZ-` as the source of truth for VATNZ vaSys OzStrips changes.
+
+The intended update chain is:
+
+```text
+maxrumsey/OzStrips
+  -> ab-vatnz/OzStrips-NZ-:vatnz/main
+  -> this repo's vendor/OzStrips
+  -> manually port needed changes into src/OzStripsEuroScope.OzStripsGui
+```
+
+Run the GitHub workflow **Sync VATNZ OzStrips vendor** after `OzStrips-NZ-:vatnz/main` has been updated. It opens a PR that refreshes only `vendor/OzStrips`.
+
+To do the same locally:
+
+```powershell
+.\scripts\Sync-FromVatnzOzStrips.ps1
+```
+
+Do not blindly copy `vendor/OzStrips/GUI` over `src/OzStripsEuroScope.OzStripsGui`. The EuroScope copy contains bridge-specific adaptations for the named-pipe helper, EuroScope SID/STAR formats, runway handling, and EuroScope flight plan writes.
+
 ## Credits
 
 This project is based on OzStrips by Max Rumsey and adapts the OzStrips GUI for use from EuroScope.
