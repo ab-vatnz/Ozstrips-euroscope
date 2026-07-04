@@ -1,0 +1,73 @@
+# Nelson autofill.
+# Domestic defaults go to filed RFL; international departures get initial FL250.
+- assign_dep_rwy: "true"
+- departures: ["124.700"]
+- CFL: "590"
+
+# Client-data fallback. Specific SOP preferences below override this where known.
+- SID: '#.*'
+
+# Runway 02 SOP preferences.
+- if:
+    runway: ["02"]
+    waypoint: ["DUMIK"]
+  SID: '#DUMI(K)?\dP'
+- if:
+    runway: ["02"]
+    waypoint: ["IDNIM", "RIKRU"]
+  SID: '#IDNI(M)?\dP'
+- if:
+    runway: ["02"]
+    waypoint: ["LUSRA"]
+  SID: '#LUSR(A)?\dP'
+- if:
+    runway: ["02"]
+    waypoint: ["LEMUT"]
+  SID: '#LEMU(T)?\dQ'
+- if:
+    runway: ["02"]
+    waypoint: ["SIMZI", "LUBSI"]
+  SID: '#ZULU\d?'
+- if:
+    runway: ["02"]
+    waypoint: ["YANKEE"]
+  SID: '#YANK(EE)?\d?'
+
+# Runway 20 SOP preferences.
+- if:
+    runway: ["20"]
+    waypoint: ["NESTA"]
+  SID: '#NEST(A)?\dQ'
+- if:
+    runway: ["20"]
+    waypoint: ["PAVNI"]
+  SID: '#PAVN(I)?\dQ'
+- if:
+    runway: ["20"]
+    waypoint: ["LUSRA"]
+  SID: '#LUSR(A)?\dQ'
+- if:
+    runway: ["20"]
+    waypoint: ["CONOR"]
+  SID: '#CONO(R)?\dQ'
+- if:
+    runway: ["20"]
+    waypoint: ["BISEB"]
+  SID: '#BISE(B)?\dQ'
+- if:
+    runway: ["20"]
+    waypoint: ["DUMIK"]
+  SID: '#DUMI(K)?\dQ'
+- if:
+    runway: ["20"]
+    waypoint: ["XRAY"]
+  SID: '#XRAY\d?'
+- if:
+    runway: ["20"]
+    waypoint: ["VICTOR"]
+  SID: '#VICT(OR)?\d?'
+
+# International initial climb.
+- if:
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  CFL: "250"

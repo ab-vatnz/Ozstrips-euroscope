@@ -1,0 +1,10 @@
+# Tauranga autofill.
+# Controller clients usually select the suitable SID for the aircraft and flight plan.
+- assign_dep_rwy: "true"
+- departures: ["119.500"]
+- CFL: "590"
+- SID: '#.*'
+
+- if:
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  CFL: "250"

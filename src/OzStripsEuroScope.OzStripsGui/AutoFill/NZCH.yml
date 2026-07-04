@@ -1,0 +1,10 @@
+# Christchurch autofill.
+# SID assignment is intentionally client-data driven.
+- assign_dep_rwy: "true"
+- departures: ["126.100", "120.900"]
+- CFL: "590"
+- SID: '#.*'
+
+- if:
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  CFL: "250"

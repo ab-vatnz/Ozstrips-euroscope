@@ -27,7 +27,7 @@ public partial class PDCControl : UserControl
         InitializeComponent();
         lb_title.Text += $" {controller.FDR.Callsign}";
         bt_vatsyspdc.Enabled = EuroScopeFeatureFlags.SupportsVatSysPdcEditor;
-        bt_vatsyspdc.Text = EuroScopeFeatureFlags.SupportsVatSysPdcEditor ? "Open Default PDC Editor" : "vaSys PDC Editor N/A";
+        bt_vatsyspdc.Text = EuroScopeFeatureFlags.SupportsVatSysPdcEditor ? "Open Default PDC Editor" : "vatSys PDC Editor N/A";
 
         foreach (var freq in Network.Me?.Frequencies?.Where(x => x != 99998).ToArray() ?? [])
         {

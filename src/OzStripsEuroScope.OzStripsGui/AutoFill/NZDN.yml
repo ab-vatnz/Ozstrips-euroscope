@@ -1,0 +1,72 @@
+# Dunedin autofill.
+# NZDN TWR can only issue up to FL250; OzStrips caps lower filed RFLs automatically.
+- assign_dep_rwy: "true"
+- departures: ["120.700"]
+- CFL: "250"
+
+# Client-data fallback. Specific SOP preferences below override this where known.
+- SID: '#.*'
+
+# Runway 21 SOP preferences.
+- if:
+    runway: ["21"]
+    waypoint: ["BIDEL"]
+  SID: '#BIDE(L)?\dQ'
+- if:
+    runway: ["21"]
+    dest_regex: '^NZQN$'
+  SID: '#BASO(S)?\dQ'
+- if:
+    runway: ["21"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#BASO(S)?\dQ'
+- if:
+    runway: ["21"]
+    waypoint: ["AKPIN"]
+  SID: '#AKPI(N)?\dQ'
+- if:
+    runway: ["21"]
+    dest_regex: '^NZNV$'
+  SID: '#AKPI(N)?\dQ'
+- if:
+    runway: ["21"]
+    waypoint: ["ALBOX"]
+  SID: '#ALBO(X)?\dQ'
+- if:
+    runway: ["21"]
+    waypoint: ["OREXI", "SW"]
+  SID: '#OCEA(N)?\d'
+- if:
+    runway: ["21"]
+    waypoint: ["PORUT"]
+  SID: '#BE\dB'
+
+# Runway 03 SOP preferences.
+- if:
+    runway: ["03"]
+    waypoint: ["BIDEL"]
+  SID: '#BIDE(L)?\dP'
+- if:
+    runway: ["03"]
+    dest_regex: '^NZQN$'
+  SID: '#BASO(S)?\dP'
+- if:
+    runway: ["03"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#BASO(S)?\dP'
+- if:
+    runway: ["03"]
+    waypoint: ["AKPIN"]
+  SID: '#AKPI(N)?\dP'
+- if:
+    runway: ["03"]
+    dest_regex: '^NZNV$'
+  SID: '#AKPI(N)?\dP'
+- if:
+    runway: ["03"]
+    waypoint: ["OREXI", "PORUT"]
+  SID: '#SOUT(H)?\d'
+- if:
+    runway: ["03"]
+    waypoint: ["MEGUG", "MIPAK"]
+  SID: '#SWAM(PY)?\d'

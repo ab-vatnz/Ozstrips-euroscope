@@ -1134,20 +1134,20 @@ public class MainFormController : IDisposable, IStripsWindow
             _mainForm.OpenPDCs.Enabled = false;
             _mainForm.OpenPDCs.Text = "Pending PDCs: N/A";
             _mainForm.OpenPDCs.BackColor = Color.Transparent;
-            _mainForm.OpenPDCs.ToolTipText = "vaSys CPDLC/Hoppie PDC queue is not available through the EuroScope bridge.";
+            _mainForm.OpenPDCs.ToolTipText = "Hoppie PDC queue is not available through the EuroScope bridge.";
             _mainForm.PDCSoundMenuItem.Enabled = false;
             _mainForm.PDCSoundMenuItem.Checked = false;
-            _mainForm.PDCSoundMenuItem.Text = "PDC Sound (vaSys only)";
+            _mainForm.PDCSoundMenuItem.Text = "PDC Sound (vatSys only)";
             _mainForm.PDCSoundMenuItem.ToolTipText = "Server PDC request audio is disabled in the EuroScope bridge.";
         }
 
         if (!EuroScopeFeatureFlags.SupportsCdm)
         {
             _mainForm.ToggleCDMToolStrip.Enabled = false;
-            _mainForm.ToggleCDMToolStrip.Text = "Toggle CDM (vaSys only)";
+            _mainForm.ToggleCDMToolStrip.Text = "Toggle CDM (vatSys only)";
             _mainForm.ToggleCDMToolStrip.ToolTipText = "CDM state publishing is not available through the EuroScope bridge.";
             _mainForm.CDMRateToolStrip.Enabled = false;
-            _mainForm.CDMRateToolStrip.Text = "CDM Rate (vaSys only)";
+            _mainForm.CDMRateToolStrip.Text = "CDM Rate (vatSys only)";
             _mainForm.CDMRateTextBox.Enabled = false;
             _mainForm.CDMRateTextBox.Text = "N/A";
             _mainForm.CDMRateTextBox.ToolTipText = "CDM rate changes are disabled in the EuroScope bridge.";
@@ -1157,8 +1157,8 @@ public class MainFormController : IDisposable, IStripsWindow
         {
             _mainForm.InhibitGroundMaps.Enabled = false;
             _mainForm.InhibitGroundMaps.Checked = true;
-            _mainForm.InhibitGroundMaps.Text = "Ground Map Updating (vaSys only)";
-            _mainForm.InhibitGroundMaps.ToolTipText = "vaSys ground-map automation is disabled in the EuroScope bridge.";
+            _mainForm.InhibitGroundMaps.Text = "Ground Map Updating (vatSys only)";
+            _mainForm.InhibitGroundMaps.ToolTipText = "vatSys ground-map automation is disabled in the EuroScope bridge.";
         }
     }
 

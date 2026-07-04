@@ -1,0 +1,51 @@
+# Wellington autofill.
+# Domestic defaults go to filed RFL; international departures get initial FL250.
+- assign_dep_rwy: "true"
+- departures: ["119.300", "122.300"]
+- CFL: "590"
+
+# Client-data fallback. Domestic SOP says to use the Controller Client suggested SID.
+- SID: '#.*'
+
+# Runway 16 SOP preferences.
+- if:
+    runway: ["16"]
+    jet: "true"
+  SID: '#ATVE(V)?\dQ'
+- if:
+    runway: ["16"]
+    jet: "false"
+  SID: '#UPRO(G)?\dQ'
+- if:
+    runway: ["16"]
+    waypoint: ["VENAM"]
+    jet: "false"
+  SID: '#AGRO(R)?\dQ'
+- if:
+    runway: ["16"]
+    dest_regex: '^NZ(NS|WB)$'
+  SID: '#IVDA(L)?\dQ'
+- if:
+    runway: ["16"]
+    waypoint: ["IVDAL"]
+  SID: '#IVDA(L)?\dQ'
+
+# Runway 34 SOP preferences.
+- if:
+    runway: ["34"]
+    jet: "true"
+  SID: '#UPLU(D)?\dP'
+- if:
+    runway: ["34"]
+    jet: "false"
+  SID: '#URGE(V)?\dP'
+- if:
+    runway: ["34"]
+    waypoint: ["IPKEP"]
+    jet: "false"
+  SID: '#IPKE(P)?\dP'
+
+# International initial climb.
+- if:
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  CFL: "250"
