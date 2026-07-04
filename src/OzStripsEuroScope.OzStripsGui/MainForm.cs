@@ -136,6 +136,16 @@ public partial class MainForm : Form, IStripsWindow
     public ToolStripTextBox CDMRateTextBox => cdmTextBox;
 
     /// <summary>
+    /// Gets the CDM rate menu item.
+    /// </summary>
+    public ToolStripMenuItem CDMRateToolStrip => cDMRateToolStripMenuItem;
+
+    /// <summary>
+    /// Gets the toggle CDM menu item.
+    /// </summary>
+    public ToolStripMenuItem ToggleCDMToolStrip => toggleCDMToolStripMenuItem;
+
+    /// <summary>
     /// Gets the main flow layout panel.
     /// </summary>
     public FlowLayoutPanel MainFLP => _flpMain;

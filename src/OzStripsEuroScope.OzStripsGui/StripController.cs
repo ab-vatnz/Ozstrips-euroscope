@@ -163,16 +163,11 @@ public class StripController
         int[] eastRVSM = [41000, 45000, 49000];
         int[] westRVSM = [43000, 47000, 51000];
 
-        var track = Conversions.CalculateTrack(first, last);
         var variation = LogicalPositions.Positions.FirstOrDefault(e => e.Name == Strip.ParentAerodrome)?.MagneticVariation ?? 0;
-        track += variation;
+        var track = NormalizeTrack(Conversions.CalculateTrack(first, last) + variation);
 
-        var even = true;
-
-        if (track is >= 0 and < 180)
-        {
-            even = false;
-        }
+        // WEED: westbound tracks use even levels; eastbound tracks use odd levels.
+        var even = track is >= 180 and < 360;
 
         var filedRfl = Strip.FiledRFL;
         if (filedRfl.Length < 2)
@@ -221,16 +216,11 @@ public class StripController
         int[] eastRVSM = [41000, 45000, 49000];
         int[] westRVSM = [43000, 47000, 51000];
 
-        var track = Conversions.CalculateTrack(first, last);
         var variation = LogicalPositions.Positions.FirstOrDefault(e => e.Name == Strip.ParentAerodrome)?.MagneticVariation ?? 0;
-        track += variation;
+        var track = NormalizeTrack(Conversions.CalculateTrack(first, last) + variation);
 
-        var even = false;
-
-        if (track is >= 90 and < 270)
-        {
-            even = true;
-        }
+        // WEED: westbound tracks use even levels; eastbound tracks use odd levels.
+        var even = track is >= 180 and < 360;
 
         var filedRfl = Strip.FiledRFL;
         if (filedRfl.Length < 2)
@@ -265,6 +255,12 @@ public class StripController
     private static bool IsUsablePosition(LatLong? position)
     {
         return position is not null && (Math.Abs(position.Latitude) > 0.000001 || Math.Abs(position.Longitude) > 0.000001);
+    }
+
+    private static double NormalizeTrack(double track)
+    {
+        track %= 360;
+        return track < 0 ? track + 360 : track;
     }
 
     private static bool SamePosition(LatLong first, LatLong second)

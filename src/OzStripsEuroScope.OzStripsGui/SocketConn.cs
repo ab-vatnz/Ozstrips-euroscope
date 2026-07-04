@@ -266,7 +266,7 @@ public sealed class SocketConn : IAsyncDisposable
     {
         get
         {
-            return _connection.State == HubConnectionState.Connected && (Network.Me.IsRealATC || _isDebug) && _synchronised;
+            return _connection.State == HubConnectionState.Connected && (Network.Me.IsRealATC || _isDebug) && _synchronised && !_isDisposed;
         }
     }
 
@@ -314,6 +314,11 @@ public sealed class SocketConn : IAsyncDisposable
     /// <param name="state">Current state.</param>
     public void SendCDMUpdate(Strip strip, CDMState state)
     {
+        if (!EuroScopeFeatureFlags.SupportsCdm)
+        {
+            return;
+        }
+
         var dto = new CDMAircraftDTO()
         {
             Key = strip.StripKey,
@@ -508,6 +513,11 @@ public sealed class SocketConn : IAsyncDisposable
     /// <param name="param">CDM Parameters.</param>
     public void SendCDMParameters(CDMParameters param)
     {
+        if (!EuroScopeFeatureFlags.SupportsCdm)
+        {
+            return;
+        }
+
         if (CanSendDTO)
         {
             LogMessageContent("ChangeCDMParameters", param, false);
@@ -627,6 +637,11 @@ public sealed class SocketConn : IAsyncDisposable
     /// <returns>Task.</returns>
     public async Task SendCDMFull()
     {
+        if (!EuroScopeFeatureFlags.SupportsCdm)
+        {
+            return;
+        }
+
         var clearedBay = _bayManager.BayRepository.Bays.FirstOrDefault(x => x.BayTypes.Contains(StripBay.BAY_CLEARED));
 
         var activeStrips = new List<Strip>();
@@ -705,40 +720,47 @@ public sealed class SocketConn : IAsyncDisposable
     /// <returns>Task.</returns>
     public async Task Connect()
     {
-        AddMessage("#Attempting connection " + OzStripsConfig.socketioaddr);
-        await _connectionSemaphore.WaitAsync();
-
-        // try-catch to ensure semaphore is released.
         try
         {
-            while (!_isDisposed)
-            {
-                if (State != ConnectionState.DISCONNECTED)
-                {
-                    return;
-                }
+            AddMessage("#Attempting connection " + OzStripsConfig.socketioaddr);
+            await _connectionSemaphore.WaitAsync();
 
-                // Try to catch internet errors etc
-                try
+            // try-catch to ensure semaphore is released.
+            try
+            {
+                while (!_isDisposed)
                 {
-                    if (!MainFormController.ReadyForConnection || !CanConnectToCurrentServer())
+                    if (State != ConnectionState.DISCONNECTED)
                     {
                         return;
                     }
 
-                    await _connection.StartAsync();
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    Errors.Add(ex, "OzStrips - Server Connection Failed");
-                    await Task.Delay(TimeSpan.FromSeconds(10 + ((new Random().NextDouble() * 4) - 2)));
+                    // Try to catch internet errors etc
+                    try
+                    {
+                        if (!MainFormController.ReadyForConnection || !CanConnectToCurrentServer())
+                        {
+                            return;
+                        }
+
+                        await _connection.StartAsync();
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        Errors.Add(ex, "OzStrips - Server Connection Failed");
+                        await Task.Delay(TimeSpan.FromSeconds(10 + ((new Random().NextDouble() * 4) - 2)));
+                    }
                 }
             }
+            finally
+            {
+                _connectionSemaphore.Release();
+            }
         }
-        finally
+        catch (ObjectDisposedException)
         {
-            _connectionSemaphore.Release();
+            return;
         }
 
         try

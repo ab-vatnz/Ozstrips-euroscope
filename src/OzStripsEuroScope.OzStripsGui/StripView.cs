@@ -376,7 +376,9 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 _strip.CockStrip();
                 break;
             case StripElements.Actions.OPEN_PDC:
-                if (_strip.PDCRequest?.Flags.HasFlag(PDCRequest.PDCFlags.REQUESTED) == true && _strip.StripType != StripType.ARRIVAL)
+                if (EuroScopeFeatureFlags.SupportsPdcQueue &&
+                    _strip.PDCRequest?.Flags.HasFlag(PDCRequest.PDCFlags.REQUESTED) == true &&
+                    _strip.StripType != StripType.ARRIVAL)
                 {
                     if (!_strip.PDCRequest.Flags.HasFlag(PDCRequest.PDCFlags.ACKNOWLEDGED))
                     {
@@ -388,7 +390,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                     break;
                 }
 
-                _strip.Controller.OpenVatSysPDCWindow();
+                _strip.Controller.OpenPDCWindow();
                 break;
             case StripElements.Actions.OPEN_PM:
                 MMI.OpenPMWindow(_strip.FDR.Callsign);

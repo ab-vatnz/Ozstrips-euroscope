@@ -26,6 +26,8 @@ public partial class PDCControl : UserControl
         _strip = controller;
         InitializeComponent();
         lb_title.Text += $" {controller.FDR.Callsign}";
+        bt_vatsyspdc.Enabled = EuroScopeFeatureFlags.SupportsVatSysPdcEditor;
+        bt_vatsyspdc.Text = EuroScopeFeatureFlags.SupportsVatSysPdcEditor ? "Open Default PDC Editor" : "vaSys PDC Editor N/A";
 
         foreach (var freq in Network.Me?.Frequencies?.Where(x => x != 99998).ToArray() ?? [])
         {
@@ -56,6 +58,11 @@ public partial class PDCControl : UserControl
 
     private void OpenVatsysPDC(object sender, EventArgs e)
     {
+        if (!EuroScopeFeatureFlags.SupportsVatSysPdcEditor)
+        {
+            return;
+        }
+
         BaseModal?.ExitModal(false);
         _strip.Controller.OpenVatSysPDCWindow();
     }

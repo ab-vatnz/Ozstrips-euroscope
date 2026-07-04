@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+      - "V*"
+      - "[0-9]*"
   workflow_dispatch:
     inputs:
       tag_name:
@@ -24,13 +26,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
 
       - name: Resolve release tag
         id: vars
@@ -42,28 +44,32 @@ jobs:
             "tag=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
           }
 
+      - name: Restore helper
+        shell: pwsh
+        run: msbuild .\src\OzStripsEuroScope.OzStripsGui\OzStripsEuroScope.OzStripsGui.csproj /t:Restore /p:RestoreIgnoreFailedSources=true /v:minimal
+
       - name: Build helper
         shell: pwsh
-        run: dotnet build .\src\OzStripsEuroScope.OzStripsGui\OzStripsEuroScope.OzStripsGui.csproj -c Release
+        run: msbuild .\src\OzStripsEuroScope.OzStripsGui\OzStripsEuroScope.OzStripsGui.csproj /p:Configuration=Release /m /v:minimal
 
       - name: Build EuroScope plugin
         shell: pwsh
         run: msbuild .\src\OzStripsEuroScope.Plugin\OzStripsEuroScope.Plugin.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0 /m /v:minimal
 
       - name: Stage release files
+        id: package
         shell: pwsh
         run: |
-          $stage = Join-Path $env:RUNNER_TEMP "OzStripsEuroScope"
+          $stage = Join-Path $env:RUNNER_TEMP 'OzStripsEuroScope'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-          Copy-Item ".\src\OzStripsEuroScope.Plugin\bin\Win32\Release\OzStripsEuroScope.dll" $stage -Force
-          Copy-Item ".\src\OzStripsEuroScope.Plugin\bin\Win32\Release\OzStripsEuroScope.pdb" $stage -Force -ErrorAction SilentlyContinue
-          Get-ChildItem ".\src\OzStripsEuroScope.OzStripsGui\bin\Release" -Force | Copy-Item -Destination $stage -Recurse -Force
+          Copy-Item '.\src\OzStripsEuroScope.Plugin\bin\Win32\Release\OzStripsEuroScope.dll' $stage -Force
+          Copy-Item '.\src\OzStripsEuroScope.Plugin\bin\Win32\Release\OzStripsEuroScope.pdb' $stage -Force -ErrorAction SilentlyContinue
+          Get-ChildItem '.\src\OzStripsEuroScope.OzStripsGui\bin\Release' -Force | Copy-Item -Destination $stage -Recurse -Force
 
           $zip = Join-Path $env:RUNNER_TEMP "OzStripsEuroScope-${{ steps.vars.outputs.tag }}.zip"
-          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force
           "zip=$zip" >> $env:GITHUB_OUTPUT
-        id: package
 
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1

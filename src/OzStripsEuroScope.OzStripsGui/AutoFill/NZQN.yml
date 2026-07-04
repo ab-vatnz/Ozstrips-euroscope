@@ -1,0 +1,149 @@
+# Queenstown autofill.
+# Altitude defaults follow NZAA: direct-to-RFL uses 590; international boundary rules assign CFL 250.
+- assign_dep_rwy: "true"
+- departures: ["125.750"]
+- CFL: "590"
+
+# Extra ATIS fallbacks for NZQN text that does not use the [RWY] / RWY: format.
+- if:
+    atis_regex: '(?i)\b(?:DEP|DEPARTURE|RWY|RUNWAY|RUNWAYS)\b.*\b0?5\b'
+  runway: "05"
+- if:
+    atis_regex: '(?i)\b(?:DEP|DEPARTURE|RWY|RUNWAY|RUNWAYS)\b.*\b23\b'
+  runway: "23"
+
+# Route-based fallback rules. These still work when the runway has not parsed yet.
+- if:
+    waypoint: ["ANPOV"]
+  SID: '#ANPOV'
+  CFL: "590"
+- if:
+    waypoint: ["IPNOR"]
+  SID: '#IPNOR'
+  CFL: "590"
+- if:
+    waypoint: ["DOVMA"]
+  SID: '#DOVMA'
+  CFL: "590"
+- if:
+    waypoint: ["REDOL"]
+  SID: '#REDOL'
+  CFL: "590"
+- if:
+    waypoint: ["BRIDGE"]
+  SID: '#BRIDGE'
+  CFL: "590"
+- if:
+    waypoint: ["GIXEL"]
+  SID: '#GIXEL'
+  CFL: "590"
+- if:
+    waypoint: ["FRANKTON"]
+  SID: '#FRANKTON'
+  CFL: "590"
+- if:
+    waypoint: ["VAPLI"]
+  SID: '#VAPLI'
+  CFL: "590"
+
+# Default SOP preferences.
+# NZQN SOP: ANPOV is the preferred jet northbound SID.
+- if:
+    runway: ["05"]
+    jet: "true"
+  SID: '#ANPOV'
+  CFL: "590"
+- if:
+    runway: ["23"]
+    jet: "true"
+  SID: '#ANPOV'
+  CFL: "590"
+- if:
+    runway: ["05"]
+    jet: "false"
+  SID: '#DOVMA'
+  CFL: "590"
+- if:
+    runway: ["23"]
+    jet: "false"
+  SID: '#REDOL'
+  CFL: "590"
+
+# International preference.
+# NZQN SOP: IPNOR is the preferred jet international SID.
+- if:
+    runway: ["05"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#IPNOR'
+  CFL: "250"
+- if:
+    runway: ["23"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#IPNOR'
+  CFL: "250"
+
+# Runway 05 SOP SID assignment.
+- if:
+    runway: ["05"]
+    waypoint: ["ANPOV"]
+  SID: '#ANPOV'
+  CFL: "590"
+- if:
+    runway: ["05"]
+    waypoint: ["IPNOR"]
+  SID: '#IPNOR'
+  CFL: "590"
+- if:
+    runway: ["05"]
+    waypoint: ["IPNOR"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#IPNOR'
+  CFL: "250"
+- if:
+    runway: ["05"]
+    waypoint: ["DOVMA"]
+  SID: '#DOVMA'
+  CFL: "590"
+- if:
+    runway: ["05"]
+    waypoint: ["BRIDGE"]
+  SID: '#BRIDGE'
+  CFL: "590"
+- if:
+    runway: ["05"]
+    waypoint: ["GIXEL"]
+  SID: '#GIXEL'
+  CFL: "590"
+
+# Runway 23 SOP SID assignment.
+- if:
+    runway: ["23"]
+    waypoint: ["ANPOV"]
+  SID: '#ANPOV'
+  CFL: "590"
+- if:
+    runway: ["23"]
+    waypoint: ["IPNOR"]
+  SID: '#IPNOR'
+  CFL: "590"
+- if:
+    runway: ["23"]
+    waypoint: ["IPNOR"]
+    dest_regex: '^(?!NZ)[A-Z0-9]{4}$'
+  SID: '#IPNOR'
+  CFL: "250"
+- if:
+    runway: ["23"]
+    waypoint: ["REDOL"]
+  SID: '#REDOL'
+  CFL: "590"
+- if:
+    runway: ["23"]
+    waypoint: ["FRANKTON"]
+  SID: '#FRANKTON'
+  CFL: "590"
+- if:
+    runway: ["23"]
+    waypoint: ["VAPLI"]
+  SID: '#VAPLI'
+  CFL: "590"
