@@ -31,6 +31,10 @@ internal class BayRenderController(Bay bay) : IDisposable
 
     internal SKControl? SkControl { get; private set; }
 
+    private StripListItem? _dragItem;
+    private SKPoint _dragOffset;
+    private bool _dragMoved;
+
     public void Dispose()
     {
         ToolTip?.RemoveAll();
@@ -52,6 +56,8 @@ internal class BayRenderController(Bay bay) : IDisposable
         SkControl.PaintSurface += Paint;
         SkControl.Click += Click;
         SkControl.DoubleClick += Click;
+        SkControl.MouseDown += MouseDown;
+        SkControl.MouseUp += MouseUp;
         SkControl.MouseMove += Hover;
         SkControl.Name = "StripBoard";
         SkControl.BackColor = Color.Wheat;
@@ -83,6 +89,12 @@ internal class BayRenderController(Bay bay) : IDisposable
 
     public int GetHeightPreScale()
     {
+        if (Bay.FreeMove)
+        {
+            var visibleHeight = SkControl?.Parent?.ClientSize.Height ?? 0;
+            return Math.Max((int)(visibleHeight / Scale), StripHeight);
+        }
+
         var y = 0;
 
         foreach (var item in Bay.Strips)
@@ -102,6 +114,11 @@ internal class BayRenderController(Bay bay) : IDisposable
 
     public int GetStripPosPreScale(Strip strip)
     {
+        if (Bay.FreeMove && strip.FreeBayY.HasValue)
+        {
+            return strip.FreeBayY.Value;
+        }
+
         var y = 0;
         var list = Bay.Strips.ToList();
         list.Reverse();
@@ -145,6 +162,14 @@ internal class BayRenderController(Bay bay) : IDisposable
 
             // make sure the canvas is blank
             canvas.Clear(SKColor.Parse("404040"));
+
+            if (Bay.FreeMove)
+            {
+                PaintFreeMoveBay(canvas);
+                canvas.Flush();
+                return;
+            }
+
             var total = Bay.Strips.Count - 1;
             var y = 0;
             for (var i = total; i >= 0; i--)
@@ -196,15 +221,51 @@ internal class BayRenderController(Bay bay) : IDisposable
         }
     }
 
+    private void PaintFreeMoveBay(SKCanvas canvas)
+    {
+        for (var i = 0; i < Bay.Strips.Count; i++)
+        {
+            var item = Bay.Strips[i];
+            var stripView = item.RenderedStripItem;
+            if (stripView is null)
+            {
+                continue;
+            }
+
+            stripView.Origin = GetFreeOrigin(item, i);
+            try
+            {
+                stripView.Render(canvas);
+            }
+            catch (Exception ex)
+            {
+                Util.LogError(ex, $"Ozstrips Renderer - Strip {item.Strip?.FDR.Callsign}");
+            }
+        }
+    }
+
     private void Click(object sender, EventArgs e)
     {
+        if (_dragMoved)
+        {
+            _dragMoved = false;
+            Redraw();
+            return;
+        }
+
         var args = (MouseEventArgs)e;
-        var strip = DetermineStripAtPos((int)(args.Y / Scale));
+        var x = (int)(args.X / Scale);
+        var y = (int)(args.Y / Scale);
+        var strip = DetermineStripAtPos(x, y);
 
         if (strip is not null)
         {
-            args = new MouseEventArgs(args.Button, args.Clicks, (int)(args.X / Scale), (int)(args.Y / Scale), args.Delta);
+            args = new MouseEventArgs(args.Button, args.Clicks, x, y, args.Delta);
             strip.RenderedStripItem?.HandleClick(args);
+        }
+        else if (Bay.FreeMove && Bay.BayManager.PickedStrip is not null)
+        {
+            _ = Bay.BayManager.DropStrip(Bay, GetDropOrigin(x, y));
         }
         else
         {
@@ -224,13 +285,120 @@ internal class BayRenderController(Bay bay) : IDisposable
 
         point = new Point((int)(point.Value.X / Scale), (int)(point.Value.Y / Scale));
 
-        var strip = DetermineStripAtPos(point.Value.Y);
+        if (_dragItem is not null)
+        {
+            var origin = ClampFreeOrigin((int)(point.Value.X - _dragOffset.X), (int)(point.Value.Y - _dragOffset.Y));
+            _dragItem.Strip?.SetFreeBayPosition((int)origin.X, (int)origin.Y);
+            _dragMoved = true;
+            Redraw();
+            return;
+        }
+
+        var strip = DetermineStripAtPos(point.Value.X, point.Value.Y);
 
         strip?.RenderedStripItem?.HandleHover(point.Value);
     }
 
-    private StripListItem? DetermineStripAtPos(int y)
+    private void MouseDown(object? sender, MouseEventArgs e)
     {
+        if (!Bay.FreeMove || e.Button != MouseButtons.Left)
+        {
+            return;
+        }
+
+        var x = (int)(e.X / Scale);
+        var y = (int)(e.Y / Scale);
+        var item = DetermineStripAtPos(x, y);
+        if (item?.Strip is null || Bay.BayManager.PickedStrip != item.Strip)
+        {
+            return;
+        }
+
+        var origin = GetFreeOrigin(item, Bay.Strips.IndexOf(item));
+        _dragItem = item;
+        _dragOffset = new SKPoint(x - origin.X, y - origin.Y);
+        _dragMoved = false;
+    }
+
+    private void MouseUp(object? sender, MouseEventArgs e)
+    {
+        if (_dragItem is null)
+        {
+            return;
+        }
+
+        var strip = _dragItem.Strip;
+        _dragItem = null;
+
+        if (strip is not null)
+        {
+            _ = strip.SyncStrip();
+        }
+    }
+
+    private SKPoint GetFreeOrigin(StripListItem item, int index)
+    {
+        var x = item.Strip?.FreeBayX ?? 0;
+        var y = item.Strip?.FreeBayY ?? index * StripHeight;
+        return ClampFreeOrigin(x, y);
+    }
+
+    private Point GetDropOrigin(int x, int y)
+    {
+        var origin = ClampFreeOrigin(x - (StripWidth / 2), y - (StripHeight / 2));
+        return new Point((int)origin.X, (int)origin.Y);
+    }
+
+    private SKPoint ClampFreeOrigin(int x, int y)
+    {
+        var maxX = Math.Max(0, (int)(((SkControl?.ClientSize.Width ?? StripWidth) / Scale) - StripWidth - 4));
+        var maxY = Math.Max(0, (int)(((SkControl?.ClientSize.Height ?? StripHeight) / Scale) - StripHeight - 4));
+
+        if (x < 0)
+        {
+            x = 0;
+        }
+        else if (x > maxX)
+        {
+            x = maxX;
+        }
+
+        if (y < 0)
+        {
+            y = 0;
+        }
+        else if (y > maxY)
+        {
+            y = maxY;
+        }
+
+        return new SKPoint(x, y);
+    }
+
+    private StripListItem? DetermineStripAtPos(int x, int y)
+    {
+        if (Bay.FreeMove)
+        {
+            for (var i = Bay.Strips.Count - 1; i >= 0; i--)
+            {
+                var item = Bay.Strips[i];
+                if (item.Type != GUI.StripItemType.STRIP)
+                {
+                    continue;
+                }
+
+                var origin = GetFreeOrigin(item, i);
+                var width = StripWidth + (2 * CockOffset);
+                if (origin.X <= x && x < origin.X + width &&
+                    origin.Y <= y && y < origin.Y + StripHeight)
+                {
+                    return item;
+                }
+            }
+
+            return null;
+        }
+
         var total = Bay.Strips.Count - 1;
         var jy = 0;
         for (var i = total; i >= 0; i--)

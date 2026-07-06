@@ -63,11 +63,7 @@ public sealed class Strip : IDisposable
         _bayManager = bayManager;
         ParentAerodrome = bayManager.AerodromeName;
         _socketConn = socketConn;
-        CurrentBay = StripBay.BAY_PREA;
-        if (StripType == StripType.ARRIVAL)
-        {
-            CurrentBay = StripBay.BAY_ARRIVAL;
-        }
+        CurrentBay = DetermineInitialBay();
 
         OriginalAerodromePair = FDR.DepAirport + FDR.DesAirport;
 
@@ -78,6 +74,21 @@ public sealed class Strip : IDisposable
     /// Gets or sets the take off time.
     /// </summary>
     public DateTime? TakeOffTime { get; set; }
+
+    /// <summary>
+    /// Gets or sets the first time this departure was detected airborne.
+    /// </summary>
+    public DateTime? AirborneSince { get; set; }
+
+    /// <summary>
+    /// Gets or sets the wake timer start time.
+    /// </summary>
+    public DateTime? WakeTimerStartedAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the wake timer duration.
+    /// </summary>
+    public TimeSpan WakeTimerDuration { get; set; }
 
     /// <summary>
     /// Gets the existing CDMResultDTO for this aircraft.
@@ -195,6 +206,26 @@ public sealed class Strip : IDisposable
     public StripBay CurrentBay { get; set; }
 
     /// <summary>
+    /// Gets or sets the x position used inside non-snapping bays.
+    /// </summary>
+    public int? FreeBayX { get; set; }
+
+    /// <summary>
+    /// Gets or sets the y position used inside non-snapping bays.
+    /// </summary>
+    public int? FreeBayY { get; set; }
+
+    /// <summary>
+    /// Gets a value indicating whether this strip has a free-bay position.
+    /// </summary>
+    public bool HasFreeBayPosition => FreeBayX.HasValue && FreeBayY.HasValue;
+
+    /// <summary>
+    /// Gets a value indicating whether this strip is VFR.
+    /// </summary>
+    public bool IsVfr => string.Equals(FDR.FlightRules, "V", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Gets or sets the current cock level.
     /// </summary>
     public int CockLevel { get; set; }
@@ -283,6 +314,51 @@ public sealed class Strip : IDisposable
     /// Gets or sets a value which when set will override the default arr/dep type.
     /// </summary>
     public StripType OverrideStripType { get; set; } = StripType.UNKNOWN;
+
+    /// <summary>
+    /// Sets a free-bay position.
+    /// </summary>
+    /// <param name="x">X position.</param>
+    /// <param name="y">Y position.</param>
+    public void SetFreeBayPosition(int x, int y)
+    {
+        FreeBayX = x;
+        FreeBayY = y;
+    }
+
+    /// <summary>
+    /// Clears the free-bay position.
+    /// </summary>
+    public void ClearFreeBayPosition()
+    {
+        FreeBayX = null;
+        FreeBayY = null;
+    }
+
+    /// <summary>
+    /// Moves the strip to the appropriate initial bay after flight rules change, if it is still in an initial bay.
+    /// </summary>
+    public bool RehomeInitialBayIfNeeded()
+    {
+        if (CurrentBay is StripBay.BAY_PREA or StripBay.BAY_ARRIVAL or StripBay.BAY_VFR_PENDING)
+        {
+            var oldBay = CurrentBay;
+            CurrentBay = DetermineInitialBay();
+            return oldBay != CurrentBay;
+        }
+
+        return false;
+    }
+
+    private StripBay DetermineInitialBay()
+    {
+        if (IsVfr)
+        {
+            return StripBay.BAY_VFR_PENDING;
+        }
+
+        return StripType == StripType.ARRIVAL ? StripBay.BAY_ARRIVAL : StripBay.BAY_PREA;
+    }
 
     /// <summary>
     /// Gets or sets the CFL.
@@ -900,6 +976,18 @@ public sealed class Strip : IDisposable
     };
 
     /// <summary>
+    /// Gets a dictionary which contains the VFR next state for a given state.
+    /// </summary>
+    private static Dictionary<StripBay, StripBay> NextBayVfr { get; } = new()
+    {
+        { StripBay.BAY_VFR_PENDING, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_VFR_WEST_NORTH, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_VFR_EAST_SOUTH, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_RUNWAY, StripBay.BAY_OUT },
+        { StripBay.BAY_OUT, StripBay.BAY_DEAD },
+    };
+
+    /// <summary>
     /// Gets a dictionary which contains the arrival next state for a given state.
     /// </summary>
     private static Dictionary<StripBay, StripBay> NextBayArr { get; } = new()
@@ -948,6 +1036,10 @@ public sealed class Strip : IDisposable
             DepartureFrequency = sc.DepartureFrequency,
             GlobalOpData = sc.FDR.GlobalOpData,
             InhibitedAlerts = sc.InhibitedAlerts,
+            FreeBayX = sc.FreeBayX,
+            FreeBayY = sc.FreeBayY,
+            WakeTimerStartedAt = sc.WakeTimerStartedAt?.ToString(CultureInfo.InvariantCulture) ?? "\0",
+            WakeTimerDurationSeconds = (int)sc.WakeTimerDuration.TotalSeconds,
         };
 
         return scDTO;
@@ -978,6 +1070,7 @@ public sealed class Strip : IDisposable
         if (TakeOffTime is null)
         {
             TakeOffTime = DateTime.UtcNow;
+            AirborneSince ??= DateTime.UtcNow;
             CoordinateStrip();
         }
         else
@@ -986,6 +1079,86 @@ public sealed class Strip : IDisposable
         }
 
         _ = SyncStrip();
+    }
+
+    /// <summary>
+    /// Starts or restarts the wake turbulence countdown timer.
+    /// </summary>
+    public void ToggleWakeTimer()
+    {
+        if (WakeTimerActive)
+        {
+            WakeTimerStartedAt = null;
+            WakeTimerDuration = TimeSpan.Zero;
+        }
+        else
+        {
+            WakeTimerDuration = DetermineWakeTimerDuration();
+            WakeTimerStartedAt = DateTime.UtcNow;
+        }
+
+        _ = SyncStrip();
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the wake timer is currently active.
+    /// </summary>
+    public bool WakeTimerActive => WakeTimerStartedAt is not null && DateTime.UtcNow < WakeTimerStartedAt.Value + WakeTimerDuration;
+
+    /// <summary>
+    /// Gets the wake timer display text.
+    /// </summary>
+    public string? WakeTimerText
+    {
+        get
+        {
+            if (!WakeTimerActive || WakeTimerStartedAt is null)
+            {
+                return null;
+            }
+
+            var remaining = WakeTimerStartedAt.Value + WakeTimerDuration - DateTime.UtcNow;
+            if (remaining < TimeSpan.Zero)
+            {
+                return null;
+            }
+
+            return $"{(int)remaining.TotalMinutes}:{remaining.Seconds:00}";
+        }
+    }
+
+    /// <summary>
+    /// Updates the airborne timestamp and reports whether the departure should be removed.
+    /// </summary>
+    /// <param name="groundSpeed">Aircraft ground speed.</param>
+    /// <returns>True if the strip should be deleted.</returns>
+    public bool ShouldRemoveAfterAirborne(int groundSpeed)
+    {
+        if (StripType == StripType.ARRIVAL)
+        {
+            return false;
+        }
+
+        if (groundSpeed <= 50)
+        {
+            AirborneSince = null;
+            return false;
+        }
+
+        AirborneSince ??= DateTime.UtcNow;
+        return DateTime.UtcNow - AirborneSince.Value >= TimeSpan.FromMinutes(5);
+    }
+
+    private TimeSpan DetermineWakeTimerDuration()
+    {
+        var wake = (FDR.AircraftWake ?? string.Empty).Trim().ToUpperInvariant();
+        return wake switch
+        {
+            "J" or "S" or "SUPER" => TimeSpan.FromMinutes(4),
+            "H" or "HEAVY" or "LARGE" => TimeSpan.FromMinutes(3),
+            "M" or "MEDIUM" => TimeSpan.FromMinutes(2),
+            _ => TimeSpan.FromMinutes(1),
+        };
     }
 
     /// <summary>
@@ -1038,12 +1211,11 @@ public sealed class Strip : IDisposable
         {
             Shared.AlertTypes.RFL => Controller.CFLAlertActive(),
             Shared.AlertTypes.SSR => !SquawkCorrect &&
-                                CurrentBay >= StripBay.BAY_TAXI &&
+                                IsTaxiOrLaterBay(CurrentBay) &&
                                 CurrentBay != StripBay.BAY_COORDINATOR &&
                                 StripType == StripType.DEPARTURE,
-            Shared.AlertTypes.ROUTE => DodgyRoute,
-            Shared.AlertTypes.NO_HDG => CurrentBay >= StripBay.BAY_HOLDSHORT &&
-                                CurrentBay != StripBay.BAY_COORDINATOR &&
+            Shared.AlertTypes.ROUTE => !IsVfr && DodgyRoute,
+            Shared.AlertTypes.NO_HDG => IsHoldingOrRunwayBay(CurrentBay) &&
                                 string.IsNullOrEmpty(HDG) &&
                                 IsHeadingRequiredForSID() &&
                                 StripType == StripType.DEPARTURE,
@@ -1052,6 +1224,16 @@ public sealed class Strip : IDisposable
             Shared.AlertTypes.DEP_CHANGED => DepartureChanged,
             _ => throw new ArgumentException("Unknown alert type."),
         };
+    }
+
+    private static bool IsTaxiOrLaterBay(StripBay bay)
+    {
+        return bay is StripBay.BAY_TAXI or StripBay.BAY_HOLDSHORT or StripBay.BAY_RUNWAY or StripBay.BAY_OUT;
+    }
+
+    private static bool IsHoldingOrRunwayBay(StripBay bay)
+    {
+        return bay is StripBay.BAY_HOLDSHORT or StripBay.BAY_RUNWAY;
     }
 
     /// <summary>
@@ -1239,6 +1421,12 @@ public sealed class Strip : IDisposable
                 return;
             }
 
+            if (IsVfr)
+            {
+                DodgyRoute = false;
+                return;
+            }
+
             // Route fetch will retry every minute.
             if (ValidRoutes is null)
             {
@@ -1306,11 +1494,11 @@ public sealed class Strip : IDisposable
                 stripBayResultDict = NextBayArr;
                 break;
             case StripType.DEPARTURE:
-                stripBayResultDict = NextBayDep;
+                stripBayResultDict = IsVfr ? NextBayVfr : NextBayDep;
                 break;
 
             case StripType.LOCAL:
-                stripBayResultDict = NextBayLocal;
+                stripBayResultDict = IsVfr ? NextBayVfr : NextBayLocal;
                 break;
             default:
                 return;
@@ -1335,7 +1523,7 @@ public sealed class Strip : IDisposable
                 // SIDTriggering into a not-loaded stripbay (or into BAY_DEAD),
                 if (proposedNewBay is null)
                 {
-                    break;
+                    continue;
                 }
 
                 if (proposedNewBay != currentStripBay)

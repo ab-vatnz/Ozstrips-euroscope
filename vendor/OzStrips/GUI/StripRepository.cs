@@ -96,7 +96,16 @@ public class StripRepository
                     }
                     else
                     {
+                        var wasVfr = controller.IsVfr;
                         controller.FDR = fdr;
+                        if (wasVfr != controller.IsVfr)
+                        {
+                            if (controller.RehomeInitialBayIfNeeded())
+                            {
+                                bayManager.UpdateBay(controller, true);
+                            }
+                        }
+
                         controller.UpdateFDR();
                         return controller;
                     }
@@ -156,6 +165,15 @@ public class StripRepository
                     strip.OverrideStripType = stripDTO.OverrideStripType;
                     strip.PDCFlags = stripDTO.PDCFlags;
                     strip.InhibitedAlerts = stripDTO.InhibitedAlerts;
+                    if (stripDTO.FreeBayX.HasValue && stripDTO.FreeBayY.HasValue)
+                    {
+                        strip.SetFreeBayPosition(stripDTO.FreeBayX.Value, stripDTO.FreeBayY.Value);
+                    }
+
+                    strip.WakeTimerStartedAt = stripDTO.WakeTimerStartedAt == "\0" ?
+                        null :
+                        DateTime.Parse(stripDTO.WakeTimerStartedAt, CultureInfo.InvariantCulture);
+                    strip.WakeTimerDuration = TimeSpan.FromSeconds(stripDTO.WakeTimerDurationSeconds);
 
                     if (changeBay)
                     {

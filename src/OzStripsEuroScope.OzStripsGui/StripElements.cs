@@ -67,6 +67,7 @@ public static class StripElements
         OPEN_PDC,
         OPEN_PM,
         OPEN_CDM,
+        WAKE_TIMER,
         INHIBIT_ROUTE,
         INHIBIT_RFL,
         INHIBIT_HDG,

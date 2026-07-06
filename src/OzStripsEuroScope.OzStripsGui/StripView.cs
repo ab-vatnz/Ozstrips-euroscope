@@ -366,6 +366,9 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Actions.OPEN_CDM:
                 _strip.Controller.OpenCDM();
                 break;
+            case StripElements.Actions.WAKE_TIMER:
+                _strip.ToggleWakeTimer();
+                break;
             case StripElements.Actions.SET_READY:
                 _strip.Controller.ToggleReady();
                 break;
@@ -482,7 +485,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 return string.Empty;
 
             case StripElements.Values.FRUL:
-                return _strip.FDR.FlightRules;
+                return _strip.WakeTimerText ?? _strip.FDR.FlightRules;
             case StripElements.Values.PDC_INDICATOR:
                 return _strip.FDR.PDCSent || _strip.PDCFlags.HasFlag(PDCRequest.PDCFlags.SENT) ? "P" : string.Empty;
             case StripElements.Values.TYPE:
@@ -690,7 +693,11 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
     {
         var color = SKColor.Empty;
 
-        color = SKColor.Parse(AerodromeManager.StripColours.FirstOrDefault(x => x.Type == _strip.StripType)?.Colour ?? throw new Exception($"Could not load strip colour for type {_strip.StripType}"));
+        var colourType = _strip.IsVfr
+            ? StripType.LOCAL
+            : _strip.StripType == StripType.ARRIVAL ? StripType.ARRIVAL : StripType.DEPARTURE;
+
+        color = SKColor.Parse(AerodromeManager.StripColours.FirstOrDefault(x => x.Type == colourType)?.Colour ?? throw new Exception($"Could not load strip colour for type {colourType}"));
 
         if (LastTransmitModifier && _bayRenderController.Bay.BayManager.LastTransmitManager.LastReceivedFrom != _strip.FDR.Callsign)
         {

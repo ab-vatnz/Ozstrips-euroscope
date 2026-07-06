@@ -15,58 +15,51 @@
   <UseNose>true</UseNose>
   <LayoutDefinitions>
     <!-- DEFAULT / RADAR TOWERS -->
+    <LayoutDefinition Name="DEL">
+      <Element Name="VFR Pending" Column="0" Weight="1.4"/>
+      <Element Name="Pending" Column="0" Weight="1.8"/>
+      <Element Name="Cleared" Column="1" Weight="1"/>
+      <Element Name="Taxi" Column="2" Weight="1"/>
+      <Element Name="Apron/Ground" Column="2" Weight="1"/>
+    </LayoutDefinition>
+    <LayoutDefinition Name="GND">
+      <Element Name="Taxi" Column="0" Weight="1"/>
+      <Element Name="Apron/Ground" Column="1" Weight="1"/>
+      <Element Name="Runway" Column="2" Weight="1"/>
+    </LayoutDefinition>
+    <LayoutDefinition Name="GND+DEL">
+      <Element Name="VFR Pending" Column="0" Weight="1.3"/>
+      <Element Name="Pending" Column="0" Weight="1.8"/>
+      <Element Name="Cleared" Column="1" Weight="0.9"/>
+      <Element Name="Taxi" Column="1" Weight="1.1"/>
+      <Element Name="Apron/Ground" Column="2" Weight="1"/>
+      <Element Name="Runway" Column="2" Weight="1"/>
+    </LayoutDefinition>
+    <LayoutDefinition Name="TWR">
+      <Element Name="West North VFR" Column="0" Weight="0.55"/>
+      <Element Name="IFR Arrivals" Column="0" Weight="1.45"/>
+      <Element Name="Runway" Column="1" Weight="1"/>
+      <Element Name="East South VFR" Column="2" Weight="0.55"/>
+      <Element Name="Apron/Ground" Column="2" Weight="0.95"/>
+    </LayoutDefinition>
+    <LayoutDefinition Name="GND+TWR">
+      <Element Name="West North VFR" Column="0" Weight="0.5"/>
+      <Element Name="IFR Arrivals" Column="0" Weight="1.25"/>
+      <Element Name="Taxi" Column="0" Weight="0.9"/>
+      <Element Name="Runway" Column="1" Weight="1"/>
+      <Element Name="East South VFR" Column="2" Weight="0.5"/>
+      <Element Name="Apron/Ground" Column="2" Weight="1.1"/>
+    </LayoutDefinition>
     <LayoutDefinition Name="All">
-      <Element Name="Preactive" Column="0"/>
-      <Element Name="Cleared" Column="0"/>
-	    <Element Name="Monitor SMC" Column="0"/>
-	    <Element Name="Pushback" Column="0"/>
-      <Element Name="Taxi" Column="1"/>
-      <Element Name="Holding Point" Column="1"/>
-      <Element Name="Runway" Column="1"/>
-      <Element Name="Circuit" Column="2"/>
-      <Element Name="Departed" Column="2"/>
-      <Element Name="Arrivals" Column="2"/>
-    </LayoutDefinition>
-    <LayoutDefinition Name="ACD">
-      <Element Name="Preactive" Column="0"/>
-      <Element Name="Cleared" Column="1"/>
-	    <Element Name="Monitor SMC" Column="2"/>
-	    <Element Name="Pushback" Column="2"/>
-    </LayoutDefinition>
-    <LayoutDefinition Name="ACD+SMC">
-      <Element Name="Preactive" Column="0"/>
-      <Element Name="Cleared" Column="0"/>
-	    <Element Name="Monitor SMC" Column="0"/>
-	    <Element Name="Pushback" Column="1"/>
-      <Element Name="Taxi" Column="1"/>
-      <Element Name="Holding Point" Column="2"/>
-      <Element Name="Runway" Column="2"/>
-    </LayoutDefinition>
-    <LayoutDefinition Name="SMC">
-      <Element Name="Cleared" Column="0"/>
-	    <Element Name="Monitor SMC" Column="0"/>
-	    <Element Name="Pushback" Column="1"/>
-      <Element Name="Taxi" Column="1"/>
-      <Element Name="Holding Point" Column="2"/>
-      <Element Name="Runway" Column="2"/>
-    </LayoutDefinition>
-    <LayoutDefinition Name="SMC+ADC">
-      <Element Name="Cleared" Column="0"/>
-	    <Element Name="Monitor SMC" Column="0"/>
-	    <Element Name="Pushback" Column="0"/>
-      <Element Name="Taxi" Column="1"/>
-      <Element Name="Holding Point" Column="1"/>
-      <Element Name="Runway" Column="1"/>
-      <Element Name="Circuit" Column="2"/>
-      <Element Name="Departed" Column="2"/>
-      <Element Name="Arrivals" Column="2"/>
-    </LayoutDefinition>
-    <LayoutDefinition Name="ADC">
-      <Element Name="Holding Point" Column="0"/>
-      <Element Name="Runway" Column="1"/>
-      <Element Name="Circuit" Column="1"/>
-      <Element Name="Departed" Column="2"/>
-      <Element Name="Arrivals" Column="2"/>
+      <Element Name="West North VFR" Column="0" Weight="0.45"/>
+      <Element Name="Taxi" Column="0" Weight="0.85"/>
+      <Element Name="VFR Pending" Column="0" Weight="1.7"/>
+      <Element Name="IFR Arrivals" Column="1" Weight="0.5"/>
+      <Element Name="Runway" Column="1" Weight="1"/>
+      <Element Name="East South VFR" Column="2" Weight="0.45"/>
+      <Element Name="Pending" Column="2" Weight="1.85"/>
+      <Element Name="Cleared" Column="2" Weight="0.65"/>
+      <Element Name="Apron/Ground" Column="2" Weight="0.75"/>
     </LayoutDefinition>
     <!-- METRO D -->
     <LayoutDefinition Name="All" Type="D">
@@ -105,8 +98,20 @@
   <BayTypes>
     <!-- RADAR TOWER / DEFAULT -->
     <BayType>
+      <Bay Name="Pending">
+        <Type>BAY_PREA</Type>
+      </Bay>
       <Bay Name="Preactive">
         <Type>BAY_PREA</Type>
+      </Bay>
+      <Bay Name="VFR Pending">
+        <Type>BAY_VFR_PENDING</Type>
+      </Bay>
+      <Bay Name="West North VFR">
+        <Type>BAY_VFR_WEST_NORTH</Type>
+      </Bay>
+      <Bay Name="East South VFR">
+        <Type>BAY_VFR_EAST_SOUTH</Type>
       </Bay>
       <Bay Name="Cleared">
         <Type>BAY_CLEARED</Type>
@@ -118,13 +123,16 @@
       <Bay Name="Pushback">
         <Type>BAY_PUSHED</Type>
       </Bay>
+      <Bay Name="Apron/Ground">
+        <Type>BAY_PUSHED</Type>
+      </Bay>
       <Bay Name="Taxi">
         <Type>BAY_TAXI</Type>
       </Bay>
       <Bay Name="Holding Point">
         <Type>BAY_HOLDSHORT</Type>
       </Bay>
-      <Bay Name="Runway" CDMDisplay="false">
+      <Bay Name="Runway" CDMDisplay="true">
         <Type>BAY_RUNWAY</Type>
       </Bay>
       <Bay Name="Departed">
@@ -133,6 +141,9 @@
       </Bay>
       <Bay Name="Circuit" Circuit="true">
         <Type>BAY_CIRCUIT</Type>
+      </Bay>
+      <Bay Name="IFR Arrivals">
+        <Type>BAY_ARRIVAL</Type>
       </Bay>
       <Bay Name="Arrivals">
         <Type>BAY_ARRIVAL</Type>
@@ -218,18 +229,18 @@
     </AerodromeList>
   </AerodromeLists>
   <PDCFormat>PDC
-{CALLSIGN} {TYPE} {ADEP} {ETD}
-CLEARED TO {ADES} VIA
-{RWY} {SID} DEP {TRANS}
-ROUTE: {ROUTE}
-CLIMB VIA SID TO: {CFL}
-DEP FREQ: {FREQ}
+{CALLSIGN}
+CLEARED {TIMESTAMP} {ADES}
+PDC DCL1 CLEARED TO {ADES} OFF {RWY} VIA {SID}
 SQUAWK {SQUAWK}
-ONLY READBACK SID, SQUAWK CODE, AND BAY NO. ON {READBACK}</PDCFormat>
+NEXT FREQ {FREQ}
+ATIS {ATIS}
+TRANSITION:SEE SID ROUTE:{ROUTE}
+ALT:{ALT}</PDCFormat>
   <AerodromeAutoFillLocation>AutoFill</AerodromeAutoFillLocation>
-  <StripColour Type="ARRIVAL">#ffffa0</StripColour>
+  <StripColour Type="ARRIVAL">#e6aedd</StripColour>
   <StripColour Type="DEPARTURE">#c1e6f2</StripColour>
-  <StripColour Type="LOCAL">#e6aedd</StripColour>
+  <StripColour Type="LOCAL">#ffffa0</StripColour>
   <StripColour Type="UNKNOWN">#404040</StripColour>
   <DefaultLayout>All</DefaultLayout>
 </AerodromeSettings>

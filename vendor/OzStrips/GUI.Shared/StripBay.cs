@@ -59,4 +59,19 @@ public enum StripBay
     /// Indicates the strip for an aircraft that is in a "STANDBY FOR GROUND" bay.
     /// </summary>
     BAY_COORDINATOR,
+
+    /// <summary>
+    /// Indicates a VFR aircraft awaiting tower action.
+    /// </summary>
+    BAY_VFR_PENDING,
+
+    /// <summary>
+    /// Indicates a manually placed VFR aircraft operating west or north of the aerodrome.
+    /// </summary>
+    BAY_VFR_WEST_NORTH,
+
+    /// <summary>
+    /// Indicates a manually placed VFR aircraft operating east or south of the aerodrome.
+    /// </summary>
+    BAY_VFR_EAST_SOUTH,
 }

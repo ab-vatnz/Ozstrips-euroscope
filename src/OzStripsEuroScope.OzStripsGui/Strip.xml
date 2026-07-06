@@ -154,7 +154,8 @@
     <H>30</H>
     <Value>FRUL</Value>
     <LeftClick>SHOW_ROUTE</LeftClick>
-    <FontSize>14</FontSize>
+    <RightClick>WAKE_TIMER</RightClick>
+    <FontSize>10</FontSize>
   </StripElement>
   <StripElement cockable="true">
     <X>390</X>

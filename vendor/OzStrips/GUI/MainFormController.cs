@@ -56,6 +56,11 @@ public class MainFormController : IDisposable, IStripsWindow
     public static bool ControlHeld => Keyboard.GetKeyStates(KeybindManager.ActiveKeybinds[KeybindManager.KEYBINDS.MODIFIER1]).HasFlag(KeyStates.Down);
 
     /// <summary>
+    /// Gets the current ATIS code displayed in the control bar.
+    /// </summary>
+    public string CurrentATISCode { get; private set; } = "Z";
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="MainFormController"/> class.
     /// </summary>
     /// <param name="form">MainForm element.</param>
@@ -246,7 +251,10 @@ public class MainFormController : IDisposable, IStripsWindow
                         types.Remove(StripBay.BAY_COORDINATOR);
                     }
 
-                    var bay = new Bay(types, _bayManager, _socketConn, element.Name, element.Column, element.Bay.CDMDisplay, availableElements.Count);
+                    var bay = new Bay(types, _bayManager, _socketConn, element.Name, element.Column, element.Bay.CDMDisplay, availableElements.Count)
+                    {
+                        HeightWeight = element.Weight <= 0 ? 1 : element.Weight,
+                    };
                     bay.OnBarsChanged += (_, _) =>
                     {
                         try
@@ -515,6 +523,13 @@ public class MainFormController : IDisposable, IStripsWindow
             if (strip is not null && pilot is not null && pilot.GroundSpeed > 50)
             {
                 _socketConn.SendCDMUpdate(strip, CDMState.COMPLETE);
+
+                if (strip.ShouldRemoveAfterAirborne(pilot.GroundSpeed))
+                {
+                    strip.CurrentBay = StripBay.BAY_DEAD;
+                    _ = strip.SyncStrip();
+                    _bayManager.BayRepository.DeleteStrip(strip);
+                }
             }
         }
         catch (Exception ex)
@@ -689,6 +704,7 @@ public class MainFormController : IDisposable, IStripsWindow
     /// <param name="code">The ATIS code.</param>
     public void SetATISCode(string code)
     {
+        CurrentATISCode = code;
         _mainForm.ATISLabel.Text = code;
     }
 
@@ -765,6 +781,7 @@ public class MainFormController : IDisposable, IStripsWindow
                 _mainForm.Invoke(() =>
                 {
                     _mainForm.TimerTextBox.Text = DateTime.UtcNow.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+                    RemoveAirborneDepartures();
                     _bayManager.ForceRerender();
                 });
             }
@@ -806,6 +823,22 @@ public class MainFormController : IDisposable, IStripsWindow
         catch (Exception ex)
         {
             Util.LogError(ex);
+        }
+    }
+
+    private void RemoveAirborneDepartures()
+    {
+        foreach (var strip in _bayManager.StripRepository.Strips)
+        {
+            var pilot = Network.GetOnlinePilots.Find(x => x.Callsign == strip.FDR.Callsign);
+            if (pilot is null || !strip.ShouldRemoveAfterAirborne(pilot.GroundSpeed))
+            {
+                continue;
+            }
+
+            strip.CurrentBay = StripBay.BAY_DEAD;
+            _ = strip.SyncStrip();
+            _bayManager.BayRepository.DeleteStrip(strip);
         }
     }
 
