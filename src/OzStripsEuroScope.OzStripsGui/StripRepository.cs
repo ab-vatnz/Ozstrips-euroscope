@@ -98,12 +98,9 @@ public class StripRepository
                     {
                         var wasVfr = controller.IsVfr;
                         controller.FDR = fdr;
-                        if (wasVfr != controller.IsVfr)
+                        if (wasVfr != controller.IsVfr && controller.RehomeInitialBayIfNeeded())
                         {
-                            if (controller.RehomeInitialBayIfNeeded())
-                            {
-                                bayManager.UpdateBay(controller, true);
-                            }
+                            bayManager.UpdateBay(controller, true);
                         }
 
                         controller.UpdateFDR();
