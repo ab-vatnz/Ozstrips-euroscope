@@ -111,7 +111,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 canvas.DrawRect(baseX + 1.5f, baseY + 1.5f, element.W - 2.5f, element.H - 2.5f, highlightPaint);
             }
 
-            canvas.DrawText(text, new SKPoint(baseX + (element.W / 2), baseY + ((fontsize + element.H) / 2)), SKTextAlign.Center, new SKFont(typeface, fontsize), textpaint);
+            DrawElementText(canvas, text, baseX, baseY, element.W, element.H, fontsize, typeface, textpaint);
         }
 
         if (_bayRenderController.Bay.BayManager.AerodromeState.InvalidDestinationAircraft.Contains(_strip.FDR.Callsign))
@@ -485,7 +485,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 return string.Empty;
 
             case StripElements.Values.FRUL:
-                return _strip.WakeTimerText ?? _strip.FDR.FlightRules;
+                return _strip.FDR.FlightRules;
             case StripElements.Values.PDC_INDICATOR:
                 return _strip.FDR.PDCSent || _strip.PDCFlags.HasFlag(PDCRequest.PDCFlags.SENT) ? "P" : string.Empty;
             case StripElements.Values.TYPE:
@@ -495,7 +495,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Values.RWY:
                 return _strip.RWY;
             case StripElements.Values.READY:
-                return _strip.Ready ? "RDY" : string.Empty;
+                return _strip.ReadyDisplayText;
             case StripElements.Values.CLX:
                 return _strip.CLX;
             case StripElements.Values.DEPFREQ:
@@ -649,6 +649,11 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Values.FIRST_WPT:
                 return _strip.IsAlertActive(Shared.AlertTypes.ROUTE) ? SKColors.Orange : SKColors.Empty;
             case StripElements.Values.READY:
+                if (_strip.Ready)
+                {
+                    return _strip.WakeTimerStartedAt is null ? SKColors.LimeGreen : SKColors.LightGreen;
+                }
+
                 var colour = SKColor.Empty;
                 if (_strip.IsAlertActive(Shared.AlertTypes.READY))
                 {
@@ -687,6 +692,19 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
         }
 
         return SKColors.Black;
+    }
+
+    private static void DrawElementText(SKCanvas canvas, string text, float baseX, float baseY, float width, float height, int fontSize, SKTypeface typeface, SKPaint textPaint)
+    {
+        var font = new SKFont(typeface, fontSize);
+        var lines = text.Split(new[] { '\n' }, StringSplitOptions.None);
+        var lineHeight = fontSize + 2;
+        var firstBaseline = baseY + ((height - (lineHeight * lines.Length)) / 2f) + fontSize;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            canvas.DrawText(lines[i], new SKPoint(baseX + (width / 2), firstBaseline + (i * lineHeight)), SKTextAlign.Center, font, textPaint);
+        }
     }
 
     private void DrawStripBackground(SKCanvas canvas)

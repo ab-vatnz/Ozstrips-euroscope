@@ -1082,48 +1082,94 @@ public sealed class Strip : IDisposable
     }
 
     /// <summary>
-    /// Starts or restarts the wake turbulence countdown timer.
+    /// Advances the ready box through ready, wake timer, and clear states.
+    /// </summary>
+    public void AdvanceReadyWakeState()
+    {
+        if (!Ready)
+        {
+            Ready = true;
+            ClearWakeTimer();
+            return;
+        }
+
+        if (WakeTimerStartedAt is null)
+        {
+            StartWakeTimer();
+            return;
+        }
+
+        Ready = false;
+        ClearWakeTimer();
+    }
+
+    /// <summary>
+    /// Starts or restarts the wake turbulence count-up timer.
     /// </summary>
     public void ToggleWakeTimer()
     {
-        if (WakeTimerActive)
+        if (WakeTimerStartedAt is not null)
         {
-            WakeTimerStartedAt = null;
-            WakeTimerDuration = TimeSpan.Zero;
+            ClearWakeTimer();
         }
         else
         {
-            WakeTimerDuration = DetermineWakeTimerDuration();
-            WakeTimerStartedAt = DateTime.UtcNow;
+            StartWakeTimer();
         }
 
         _ = SyncStrip();
     }
 
     /// <summary>
-    /// Gets a value indicating whether the wake timer is currently active.
+    /// Gets a value indicating whether the wake timer is currently within its timing window.
     /// </summary>
-    public bool WakeTimerActive => WakeTimerStartedAt is not null && DateTime.UtcNow < WakeTimerStartedAt.Value + WakeTimerDuration;
+    public bool WakeTimerActive => WakeTimerStartedAt is not null && DateTime.UtcNow - WakeTimerStartedAt.Value < WakeTimerDuration;
 
     /// <summary>
-    /// Gets the wake timer display text.
+    /// Gets the ready box display text.
     /// </summary>
-    public string? WakeTimerText
+    public string ReadyDisplayText
     {
         get
         {
-            if (!WakeTimerActive || WakeTimerStartedAt is null)
+            if (!Ready)
             {
-                return null;
+                return string.Empty;
             }
 
-            var remaining = WakeTimerStartedAt.Value + WakeTimerDuration - DateTime.UtcNow;
-            if (remaining < TimeSpan.Zero)
+            if (WakeTimerStartedAt is null)
             {
-                return null;
+                return "RDY";
             }
 
-            return $"{(int)remaining.TotalMinutes}:{remaining.Seconds:00}";
+            return $"{WakeTimerStartedAt.Value.ToString("HHmm", CultureInfo.InvariantCulture)}\n{WakeTimerText}";
+        }
+    }
+
+    /// <summary>
+    /// Gets the wake timer elapsed display text.
+    /// </summary>
+    public string WakeTimerText
+    {
+        get
+        {
+            if (WakeTimerStartedAt is null)
+            {
+                return string.Empty;
+            }
+
+            var elapsed = DateTime.UtcNow - WakeTimerStartedAt.Value;
+            if (elapsed < TimeSpan.Zero)
+            {
+                elapsed = TimeSpan.Zero;
+            }
+
+            if (WakeTimerDuration > TimeSpan.Zero && elapsed > WakeTimerDuration)
+            {
+                elapsed = WakeTimerDuration;
+            }
+
+            return $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
         }
     }
 
@@ -1154,11 +1200,23 @@ public sealed class Strip : IDisposable
         var wake = (FDR.AircraftWake ?? string.Empty).Trim().ToUpperInvariant();
         return wake switch
         {
-            "J" or "S" or "SUPER" => TimeSpan.FromMinutes(4),
-            "H" or "HEAVY" or "LARGE" => TimeSpan.FromMinutes(3),
-            "M" or "MEDIUM" => TimeSpan.FromMinutes(2),
-            _ => TimeSpan.FromMinutes(1),
+            "J" or "S" or "SUPER" or "H" or "HEAVY" or "LARGE" => TimeSpan.FromMinutes(4),
+            "M" or "MEDIUM" => TimeSpan.FromMinutes(3),
+            "L" or "LIGHT" or "SMALL" => TimeSpan.FromMinutes(2),
+            _ => TimeSpan.FromMinutes(2),
         };
+    }
+
+    private void StartWakeTimer()
+    {
+        WakeTimerDuration = DetermineWakeTimerDuration();
+        WakeTimerStartedAt = DateTime.UtcNow;
+    }
+
+    private void ClearWakeTimer()
+    {
+        WakeTimerStartedAt = null;
+        WakeTimerDuration = TimeSpan.Zero;
     }
 
     /// <summary>

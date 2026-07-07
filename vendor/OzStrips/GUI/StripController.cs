@@ -366,7 +366,7 @@ public class StripController
     /// </summary>
     public void ToggleReady()
     {
-        Strip.Ready = !Strip.Ready;
+        Strip.AdvanceReadyWakeState();
         _ = Strip.SyncStrip();
     }
 
