@@ -172,5 +172,16 @@ internal sealed class StandAllocatorService
 
     private static string GetApiBaseUrl() => StandAllocatorApiConfiguration.GetApiBaseUrl();
 
-    private sealed record ArrivalCacheEntry(DateTime ExpiresUtc, IReadOnlyList<StandAllocatorArrivalSummary> Arrivals);
+    private sealed class ArrivalCacheEntry
+    {
+        public ArrivalCacheEntry(DateTime expiresUtc, IReadOnlyList<StandAllocatorArrivalSummary> arrivals)
+        {
+            ExpiresUtc = expiresUtc;
+            Arrivals = arrivals;
+        }
+
+        public DateTime ExpiresUtc { get; }
+
+        public IReadOnlyList<StandAllocatorArrivalSummary> Arrivals { get; }
+    }
 }
