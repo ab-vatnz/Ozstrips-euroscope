@@ -77,25 +77,43 @@ public partial class PDCControl : UserControl
 
         cfl *= 100;
         var ssr = _strip.DisplaySSR;
+        var atisCode = MainFormController.Instance?.CurrentATISCode ?? "Z";
+        var timestamp = DateTime.UtcNow.ToString("HHmm", CultureInfo.InvariantCulture);
 
-        var format = AerodromeManager.PDCFormat
-        .Replace("\n", "\r\n")
-        .Replace("{CALLSIGN}", _strip.FDR.Callsign)
-        .Replace("{TYPE}", _strip.FDR.AircraftType)
-        .Replace("{ADEP}", _strip.FDR.DepAirport)
-        .Replace("{ETD}", _strip.FDR.ETD.ToString("HHmm", CultureInfo.InvariantCulture))
-        .Replace("{ADES}", CPDLCify(_strip.FDR.DesAirport))
-        .Replace("{RWY}", CPDLCify(_strip.RWY))
-        .Replace("{SID}", CPDLCify(_strip.SID))
-        .Replace("{TRANS}", trans)
-        .Replace("{ROUTE}", _strip.FDR.Route)
-        .Replace("{CFL}", CPDLCify(cfl.ToString(CultureInfo.InvariantCulture)))
-        .Replace("{CFL_FL}", CPDLCify(cfl_fl.ToString(CultureInfo.InvariantCulture)))
-        .Replace("{RFL_FL}", CPDLCify(_strip.RFL.ToString(CultureInfo.InvariantCulture)))
-        .Replace("{RFL}", CPDLCify(_strip.FDR.RFL.ToString(CultureInfo.InvariantCulture)))
-        .Replace("{FREQ}", CPDLCify(_strip.DepartureFrequency))
-        .Replace("{SQUAWK}", CPDLCify(ssr))
-        .Replace("{READBACK}", cb_delivery.Text);
+        var tokens = new Dictionary<string, string>
+        {
+            { "CALLSIGN", _strip.FDR.Callsign },
+            { "TYPE", _strip.FDR.AircraftType },
+            { "ADEP", _strip.FDR.DepAirport },
+            { "ETD", _strip.FDR.ETD.ToString("HHmm", CultureInfo.InvariantCulture) },
+            { "TIMESTAMP", timestamp },
+            { "ADES", CPDLCify(_strip.FDR.DesAirport) },
+            { "RUNWAY", CPDLCify(_strip.RWY) },
+            { "RWY", CPDLCify(_strip.RWY) },
+            { "SID", CPDLCify(_strip.SID) },
+            { "TRANS", trans },
+            { "ROUTE", _strip.FDR.Route },
+            { "ALT", CPDLCify(cfl.ToString(CultureInfo.InvariantCulture)) },
+            { "CFL", CPDLCify(cfl.ToString(CultureInfo.InvariantCulture)) },
+            { "CFL_FL", CPDLCify(cfl_fl.ToString(CultureInfo.InvariantCulture)) },
+            { "RFL_FL", CPDLCify(_strip.RFL.ToString(CultureInfo.InvariantCulture)) },
+            { "RFL", CPDLCify(_strip.FDR.RFL.ToString(CultureInfo.InvariantCulture)) },
+            { "FREQUENCY", CPDLCify(_strip.DepartureFrequency) },
+            { "FREQ", CPDLCify(_strip.DepartureFrequency) },
+            { "SSR", CPDLCify(ssr) },
+            { "SQUAWK", CPDLCify(ssr) },
+            { "CODE", CPDLCify(atisCode) },
+            { "ATIS", CPDLCify(atisCode) },
+            { "READBACK", cb_delivery.Text },
+        };
+
+        var format = AerodromeManager.PDCFormat.Replace("\n", "\r\n");
+        foreach (var token in tokens)
+        {
+            format = format
+                .Replace("{" + token.Key + "}", token.Value)
+                .Replace("[" + token.Key + "]", token.Value);
+        }
 
         var error = string.Empty;
 
@@ -103,7 +121,8 @@ public partial class PDCControl : UserControl
             cfl == 0 ||
             string.IsNullOrEmpty(_strip.SID) ||
             string.IsNullOrEmpty(_strip.RWY) ||
-            string.IsNullOrEmpty(_strip.DepartureFrequency))
+            string.IsNullOrEmpty(_strip.DepartureFrequency) ||
+            string.IsNullOrEmpty(atisCode))
         {
             error = "Error: All PDC elements could not be filled.";
         }

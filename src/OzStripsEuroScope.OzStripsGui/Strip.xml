@@ -95,7 +95,7 @@
   <StripElement crossable="true">
     <X>185</X>
     <Y>0</Y>
-    <W>170</W>
+    <W>145</W>
     <H>36</H>
     <Value>GLOP</Value>
     <LeftClick>MOD_GLOP</LeftClick>
@@ -117,7 +117,7 @@
   <StripElement>
     <X>270</X>
     <Y>36</Y>
-    <W>85</W>
+    <W>60</W>
     <H>24</H>
     <Value>FIRST_WPT</Value>
     <LeftClick>OPEN_FDR</LeftClick>
@@ -127,14 +127,25 @@
     <FontSize>13</FontSize>
   </StripElement>
 
-  <!-- Right side: one big stand box, then an I/V info box and a time box. -->
+  <!-- Right side: ready flag, stand box, then an I/V info box and a time box. -->
   <StripElement>
-    <X>355</X>
+    <X>330</X>
     <Y>0</Y>
-    <W>35</W>
+    <W>30</W>
+    <H>60</H>
+    <Value>READY</Value>
+    <LeftClick>SET_READY</LeftClick>
+    <MiddleClick>INHIBIT_READY</MiddleClick>
+    <FontSize>11</FontSize>
+  </StripElement>
+  <StripElement>
+    <X>360</X>
+    <Y>0</Y>
+    <W>30</W>
     <H>60</H>
     <Value>STAND</Value>
     <LeftClick>MOD_STD</LeftClick>
+    <RightClick>MOD_ALLOCATOR_STD</RightClick>
     <FontSize>15</FontSize>
   </StripElement>
   <StripElement cockable="true">
@@ -144,7 +155,7 @@
     <H>30</H>
     <Value>FRUL</Value>
     <LeftClick>SHOW_ROUTE</LeftClick>
-    <FontSize>14</FontSize>
+    <FontSize>10</FontSize>
   </StripElement>
   <StripElement cockable="true">
     <X>390</X>

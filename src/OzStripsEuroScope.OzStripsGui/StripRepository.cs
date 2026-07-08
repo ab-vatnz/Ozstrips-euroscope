@@ -96,8 +96,15 @@ public class StripRepository
                     }
                     else
                     {
+                        var wasVfr = controller.IsVfr;
                         controller.FDR = fdr;
+                        if (wasVfr != controller.IsVfr && controller.RehomeInitialBayIfNeeded())
+                        {
+                            bayManager.UpdateBay(controller, true);
+                        }
+
                         controller.UpdateFDR();
+                        _ = controller.RefreshAllocatorStand();
                         return controller;
                     }
                 }
@@ -156,6 +163,26 @@ public class StripRepository
                     strip.OverrideStripType = stripDTO.OverrideStripType;
                     strip.PDCFlags = stripDTO.PDCFlags;
                     strip.InhibitedAlerts = stripDTO.InhibitedAlerts;
+                    if (stripDTO.FreeBayX.HasValue && stripDTO.FreeBayY.HasValue)
+                    {
+                        strip.SetFreeBayPosition(stripDTO.FreeBayX.Value, stripDTO.FreeBayY.Value);
+                    }
+
+                    if (stripDTO.WakeTimerStartedAt != "\0" &&
+                        DateTime.TryParse(
+                            stripDTO.WakeTimerStartedAt,
+                            CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal,
+                            out var wakeTimerStartedAt))
+                    {
+                        strip.WakeTimerStartedAt = wakeTimerStartedAt;
+                        strip.WakeTimerDuration = TimeSpan.FromSeconds(stripDTO.WakeTimerDurationSeconds);
+                    }
+                    else if (!stripDTO.ready)
+                    {
+                        strip.WakeTimerStartedAt = null;
+                        strip.WakeTimerDuration = TimeSpan.Zero;
+                    }
 
                     if (changeBay)
                     {
@@ -262,6 +289,7 @@ public class StripRepository
         var stripController = new Strip(fdr, bayManager, socketConn);
         bayManager.AddStrip(stripController, true, inhibitReorders);
         await stripController.FetchStripData();
+        _ = stripController.RefreshAllocatorStand();
         return stripController;
     }
 }

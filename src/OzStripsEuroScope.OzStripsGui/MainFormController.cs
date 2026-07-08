@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
@@ -27,7 +27,26 @@ public class MainFormController : IDisposable, IStripsWindow
     private string _clientsOnline = string.Empty;
     private string _layoutName = "All";
 
-    private readonly string _defaultLayoutName;
+    private string _requestedDefaultLayoutName = "All";
+
+    private string DefaultLayoutName
+    {
+        get
+        {
+            if (_bayManager is null)
+            {
+                return _layoutName;
+            }
+
+            var layouts = _mainForm.AerodromeManager.ReturnLayouts(_mainForm.AerodromeManager.GetAerodromeType(_bayManager.AerodromeName));
+            return layouts.Any(x => x.Name == _requestedDefaultLayoutName) ? _requestedDefaultLayoutName : "All";
+        }
+
+        set
+        {
+            _requestedDefaultLayoutName = value;
+        }
+    }
 
     private readonly MainForm _mainForm;
     private readonly Timer _timer;
@@ -66,6 +85,11 @@ public class MainFormController : IDisposable, IStripsWindow
     public ConnectionMetadataDTO.Servers CurrentServer => _socketConn?.Server ?? ConnectionMetadataDTO.Servers.VATSIM;
 
     /// <summary>
+    /// Gets the current ATIS code displayed in the control bar.
+    /// </summary>
+    public string CurrentATISCode { get; private set; } = "Z";
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="MainFormController"/> class.
     /// </summary>
     /// <param name="form">MainForm element.</param>
@@ -87,8 +111,8 @@ public class MainFormController : IDisposable, IStripsWindow
         _timer.Start();
         _mainForm.AerodromeManager.InitialiseOnNewWindow();
 
-        _defaultLayoutName = _mainForm.AerodromeManager.Settings?.DefaultLayout ?? "All";
-        _layoutName = _defaultLayoutName;
+        DefaultLayoutName = _mainForm.AerodromeManager.Settings?.DefaultLayout ?? "All";
+        _layoutName = DefaultLayoutName;
     }
 
     /// <summary>
@@ -104,6 +128,7 @@ public class MainFormController : IDisposable, IStripsWindow
 
         _socketConn.AerodromeStateChanged += AerodromeStateChanged;
         _socketConn.NewPDCsReceived += NewPDCsReceived;
+        ConfigureEuroScopeUnsupportedFeatures();
 
         _mainForm.AerodromeManager.ViewListChanged += AerodromeTypeChanged;
         AerodromeListChanged(this, EventArgs.Empty);
@@ -130,6 +155,11 @@ public class MainFormController : IDisposable, IStripsWindow
 
     private void NewPDCsReceived(object sender, string[] e)
     {
+        if (!EuroScopeFeatureFlags.SupportsPdcQueue)
+        {
+            return;
+        }
+
         // If these callsigns don't correspond to real aircraft
         if (!e.Any(x => _bayManager.StripRepository.GetStrip(x) is not null) || !_permitPDCSound)
         {
@@ -203,7 +233,7 @@ public class MainFormController : IDisposable, IStripsWindow
         _mainForm.ViewListToolStrip.DropDownItems.Clear();
 
         var layouts = _mainForm.AerodromeManager.ReturnLayouts(_mainForm.AerodromeManager.GetAerodromeType(_bayManager.AerodromeName));
-        var bays = layouts.First(x => x.Name == _defaultLayoutName).Elements.Select(x => x.Bay);
+        var bays = layouts.First(x => x.Name == DefaultLayoutName).Elements.Select(x => x.Bay);
 
         var circuitBayDefined = bays.Any(x => x?.Circuit == true);
         var coordinatorBayDefined = bays.Any(x => x?.Coordinator == true);
@@ -256,7 +286,10 @@ public class MainFormController : IDisposable, IStripsWindow
                         types.Remove(StripBay.BAY_COORDINATOR);
                     }
 
-                    var bay = new Bay(types, _bayManager, _socketConn, element.Name, element.Column, element.Bay.CDMDisplay, availableElements.Count);
+                    var bay = new Bay(types, _bayManager, _socketConn, element.Name, element.Column, element.Bay.CDMDisplay, availableElements.Count)
+                    {
+                        HeightWeight = element.Weight <= 0 ? 1 : element.Weight,
+                    };
                     bay.OnBarsChanged += (_, _) =>
                     {
                         try
@@ -276,7 +309,7 @@ public class MainFormController : IDisposable, IStripsWindow
                 SetTitle();
             };
 
-            if (layout.Name == _defaultLayoutName)
+            if (layout.Name == DefaultLayoutName)
             {
                 _bayManager.BayRepository.SetLayout(action);
                 _defaultLayout = action;
@@ -348,6 +381,11 @@ public class MainFormController : IDisposable, IStripsWindow
     /// </summary>
     public void UpdateMaps()
     {
+        if (!EuroScopeFeatureFlags.SupportsGroundMapAutomation)
+        {
+            return;
+        }
+
         var fullName = _mainForm.AerodromeManager.Settings?.AutoMapAerodromes?.FirstOrDefault(x => x.ICAOCode == _bayManager.AerodromeName)?.FullName;
         var bay = _bayManager.BayRepository.Bays.Find(x => x.BayTypes.Contains(StripBay.BAY_RUNWAY));
 
@@ -555,7 +593,17 @@ public class MainFormController : IDisposable, IStripsWindow
             // only send for CDM relevant aircraft?
             if (strip is not null && pilot is not null && pilot.GroundSpeed > 50)
             {
-                _socketConn.SendCDMUpdate(strip, CDMState.COMPLETE);
+                if (EuroScopeFeatureFlags.SupportsCdm)
+                {
+                    _socketConn.SendCDMUpdate(strip, CDMState.COMPLETE);
+                }
+
+                if (strip.ShouldRemoveAfterAirborne(pilot.GroundSpeed))
+                {
+                    strip.CurrentBay = StripBay.BAY_DEAD;
+                    _ = strip.SyncStrip();
+                    _bayManager.BayRepository.DeleteStrip(strip);
+                }
             }
         }
         catch (Exception ex)
@@ -730,6 +778,7 @@ public class MainFormController : IDisposable, IStripsWindow
     /// <param name="code">The ATIS code.</param>
     public void SetATISCode(string code)
     {
+        CurrentATISCode = code;
         _mainForm.ATISLabel.Text = code;
     }
 
@@ -806,6 +855,7 @@ public class MainFormController : IDisposable, IStripsWindow
                 _mainForm.Invoke(() =>
                 {
                     _mainForm.TimerTextBox.Text = DateTime.UtcNow.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+                    RemoveAirborneDepartures();
                     _bayManager.ForceRerender();
                 });
             }
@@ -817,7 +867,7 @@ public class MainFormController : IDisposable, IStripsWindow
 
         try
         {
-            var openPDCs = _bayManager.AerodromeState.PDCRequests.Count(x =>
+            var openPDCs = EuroScopeFeatureFlags.SupportsPdcQueue ? _bayManager.AerodromeState.PDCRequests.Count(x =>
             {
                 var strip = _bayManager.StripRepository.GetStrip(x.Callsign);
 
@@ -827,12 +877,16 @@ public class MainFormController : IDisposable, IStripsWindow
                 }
 
                 return x.Flags.HasFlag(PDCRequest.PDCFlags.REQUESTED) && !strip.PDCFlags.HasFlag(PDCRequest.PDCFlags.SENT);
-            });
+            }) : 0;
 
             var autoFillAvailable = _bayManager.AutoAssigner?.IsFunctional ?? false;
 
-            _mainForm.OpenPDCs.Text = $"Pending PDCs: {openPDCs}";
-            _mainForm.OpenPDCs.BackColor = openPDCs > 0 ? Color.LightBlue : Color.Transparent;
+            if (EuroScopeFeatureFlags.SupportsPdcQueue)
+            {
+                _mainForm.OpenPDCs.Text = $"Pending PDCs: {openPDCs}";
+                _mainForm.OpenPDCs.BackColor = openPDCs > 0 ? Color.LightBlue : Color.Transparent;
+            }
+
             _mainForm.AutoFillAvailable.BackColor = autoFillAvailable ? Color.LightGreen : Color.Red;
         }
         catch (Exception ex)
@@ -847,6 +901,22 @@ public class MainFormController : IDisposable, IStripsWindow
         catch (Exception ex)
         {
             Util.LogError(ex);
+        }
+    }
+
+    private void RemoveAirborneDepartures()
+    {
+        foreach (var strip in _bayManager.StripRepository.Strips)
+        {
+            var pilot = Network.GetOnlinePilots.Find(x => x.Callsign == strip.FDR.Callsign);
+            if (pilot is null || !strip.ShouldRemoveAfterAirborne(pilot.GroundSpeed))
+            {
+                continue;
+            }
+
+            strip.CurrentBay = StripBay.BAY_DEAD;
+            _ = strip.SyncStrip();
+            _bayManager.BayRepository.DeleteStrip(strip);
         }
     }
 
@@ -919,6 +989,11 @@ public class MainFormController : IDisposable, IStripsWindow
 
     internal void ToggleCDM(object sender, EventArgs e)
     {
+        if (!EuroScopeFeatureFlags.SupportsCdm)
+        {
+            return;
+        }
+
         try
         {
             if (_bayManager.AerodromeState.AerodromeCode == _bayManager.AerodromeName)
@@ -1034,6 +1109,11 @@ public class MainFormController : IDisposable, IStripsWindow
     /// <param name="e">Event args.</param>
     public void CDMRateKeyDown(object sender, KeyPressEventArgs e)
     {
+        if (!EuroScopeFeatureFlags.SupportsCdm)
+        {
+            return;
+        }
+
         try
         {
             if (_bayManager != null && e.KeyChar == Convert.ToChar(Keys.Enter, CultureInfo.InvariantCulture))
@@ -1067,12 +1147,55 @@ public class MainFormController : IDisposable, IStripsWindow
     /// </summary>
     public void ResetCDMRateTextBox()
     {
+        if (!EuroScopeFeatureFlags.SupportsCdm)
+        {
+            _mainForm.CDMRateTextBox.Text = "N/A";
+            _mainForm.CDMRateTextBox.Enabled = false;
+            return;
+        }
+
         var period = _bayManager.AerodromeState.CDMParameters.DefaultRate ?? TimeSpan.FromMinutes(2);
         var rate = (int)(60 / period.TotalMinutes);
 
         _mainForm.CDMRateTextBox.Text = rate.ToString(CultureInfo.InvariantCulture);
 
         _mainForm.CDMRateTextBox.Enabled = !_bayManager.AerodromeState.CDMRateLocked;
+    }
+
+    private void ConfigureEuroScopeUnsupportedFeatures()
+    {
+        if (!EuroScopeFeatureFlags.SupportsPdcQueue)
+        {
+            _permitPDCSound = false;
+            _mainForm.OpenPDCs.Enabled = false;
+            _mainForm.OpenPDCs.Text = "Pending PDCs: N/A";
+            _mainForm.OpenPDCs.BackColor = Color.Transparent;
+            _mainForm.OpenPDCs.ToolTipText = "Hoppie PDC queue is not available through the EuroScope bridge.";
+            _mainForm.PDCSoundMenuItem.Enabled = false;
+            _mainForm.PDCSoundMenuItem.Checked = false;
+            _mainForm.PDCSoundMenuItem.Text = "PDC Sound (vatSys only)";
+            _mainForm.PDCSoundMenuItem.ToolTipText = "Server PDC request audio is disabled in the EuroScope bridge.";
+        }
+
+        if (!EuroScopeFeatureFlags.SupportsCdm)
+        {
+            _mainForm.ToggleCDMToolStrip.Enabled = false;
+            _mainForm.ToggleCDMToolStrip.Text = "Toggle CDM (vatSys only)";
+            _mainForm.ToggleCDMToolStrip.ToolTipText = "CDM state publishing is not available through the EuroScope bridge.";
+            _mainForm.CDMRateToolStrip.Enabled = false;
+            _mainForm.CDMRateToolStrip.Text = "CDM Rate (vatSys only)";
+            _mainForm.CDMRateTextBox.Enabled = false;
+            _mainForm.CDMRateTextBox.Text = "N/A";
+            _mainForm.CDMRateTextBox.ToolTipText = "CDM rate changes are disabled in the EuroScope bridge.";
+        }
+
+        if (!EuroScopeFeatureFlags.SupportsGroundMapAutomation)
+        {
+            _mainForm.InhibitGroundMaps.Enabled = false;
+            _mainForm.InhibitGroundMaps.Checked = true;
+            _mainForm.InhibitGroundMaps.Text = "Ground Map Updating (vatSys only)";
+            _mainForm.InhibitGroundMaps.ToolTipText = "vatSys ground-map automation is disabled in the EuroScope bridge.";
+        }
     }
 
     /// <summary>

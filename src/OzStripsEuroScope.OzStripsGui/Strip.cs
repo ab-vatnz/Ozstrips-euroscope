@@ -49,6 +49,7 @@ public sealed class Strip : IDisposable
     ////private readonly StripLayoutTypes StripType;
 
     private bool _crossing;
+    private bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Strip"/> class.
@@ -62,11 +63,7 @@ public sealed class Strip : IDisposable
         _bayManager = bayManager;
         ParentAerodrome = bayManager.AerodromeName;
         _socketConn = socketConn;
-        CurrentBay = StripBay.BAY_PREA;
-        if (StripType == StripType.ARRIVAL)
-        {
-            CurrentBay = StripBay.BAY_ARRIVAL;
-        }
+        CurrentBay = DetermineInitialBay();
 
         OriginalAerodromePair = FDR.DepAirport + FDR.DesAirport;
 
@@ -77,6 +74,21 @@ public sealed class Strip : IDisposable
     /// Gets or sets the take off time.
     /// </summary>
     public DateTime? TakeOffTime { get; set; }
+
+    /// <summary>
+    /// Gets or sets the first time this departure was detected airborne.
+    /// </summary>
+    public DateTime? AirborneSince { get; set; }
+
+    /// <summary>
+    /// Gets or sets the wake timer start time.
+    /// </summary>
+    public DateTime? WakeTimerStartedAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the wake timer duration.
+    /// </summary>
+    public TimeSpan WakeTimerDuration { get; set; }
 
     /// <summary>
     /// Gets the existing CDMResultDTO for this aircraft.
@@ -194,6 +206,26 @@ public sealed class Strip : IDisposable
     public StripBay CurrentBay { get; set; }
 
     /// <summary>
+    /// Gets or sets the x position used inside non-snapping bays.
+    /// </summary>
+    public int? FreeBayX { get; set; }
+
+    /// <summary>
+    /// Gets or sets the y position used inside non-snapping bays.
+    /// </summary>
+    public int? FreeBayY { get; set; }
+
+    /// <summary>
+    /// Gets a value indicating whether this strip has a free-bay position.
+    /// </summary>
+    public bool HasFreeBayPosition => FreeBayX.HasValue && FreeBayY.HasValue;
+
+    /// <summary>
+    /// Gets a value indicating whether this strip is VFR.
+    /// </summary>
+    public bool IsVfr => string.Equals(FDR.FlightRules, "V", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Gets or sets the current cock level.
     /// </summary>
     public int CockLevel { get; set; }
@@ -284,6 +316,94 @@ public sealed class Strip : IDisposable
     public StripType OverrideStripType { get; set; } = StripType.UNKNOWN;
 
     /// <summary>
+    /// Sets a free-bay position.
+    /// </summary>
+    /// <param name="x">X position.</param>
+    /// <param name="y">Y position.</param>
+    public void SetFreeBayPosition(int x, int y)
+    {
+        FreeBayX = x;
+        FreeBayY = y;
+    }
+
+    /// <summary>
+    /// Clears the free-bay position.
+    /// </summary>
+    public void ClearFreeBayPosition()
+    {
+        FreeBayX = null;
+        FreeBayY = null;
+    }
+
+    /// <summary>
+    /// Refreshes the displayed stand from the stand allocator, when available.
+    /// </summary>
+    public async Task RefreshAllocatorStand()
+    {
+        var stand = await StandAllocatorService.Instance.GetStandForStripAsync(this);
+        if (string.Equals(AllocatorStand, stand, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        UpdateAllocatorStandDisplay(stand);
+    }
+
+    /// <summary>
+    /// Applies a manually selected stand allocator value to the strip and shared state.
+    /// </summary>
+    /// <param name="stand">The selected stand.</param>
+    public void ApplyStandAllocatorSelection(string stand)
+    {
+        Gate = stand;
+        AllocatedBay = stand;
+        UpdateAllocatorStandDisplay(stand);
+    }
+
+    private void UpdateAllocatorStandDisplay(string stand)
+    {
+        void Apply()
+        {
+            AllocatorStand = stand;
+            _bayManager.UpdateBay(this);
+        }
+
+        var mainForm = MainForm.MainFormInstance;
+        if (mainForm?.IsHandleCreated == true && mainForm.InvokeRequired)
+        {
+            mainForm.BeginInvoke(new Action(Apply));
+            return;
+        }
+
+        Apply();
+    }
+
+    /// <summary>
+    /// Moves the strip to the appropriate initial bay after flight rules change, if it is still in an initial bay.
+    /// </summary>
+    public bool RehomeInitialBayIfNeeded()
+    {
+        if (CurrentBay is StripBay.BAY_PREA or StripBay.BAY_ARRIVAL or StripBay.BAY_VFR_PENDING)
+        {
+            var oldBay = CurrentBay;
+            CurrentBay = DetermineInitialBay();
+            return oldBay != CurrentBay;
+        }
+
+        return false;
+    }
+
+    private StripBay DetermineInitialBay()
+    {
+        if (IsVfr)
+        {
+            return StripBay.BAY_VFR_PENDING;
+        }
+
+        return StripType == StripType.ARRIVAL ? StripBay.BAY_ARRIVAL : StripBay.BAY_PREA;
+    }
+
+    /// <summary>
     /// Gets or sets the CFL.
     /// </summary>
     public string CFL
@@ -359,6 +479,43 @@ public sealed class Strip : IDisposable
     public string AllocatedBay { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the live stand reported by the VATNZ stand allocator.
+    /// </summary>
+    public string AllocatorStand { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the stand that should be displayed on the strip.
+    /// </summary>
+    public string DisplayStand
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(AllocatorStand))
+            {
+                return AllocatorStand;
+            }
+
+            if (!string.IsNullOrWhiteSpace(Gate))
+            {
+                return Gate;
+            }
+
+            return AllocatedBay;
+        }
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the displayed stand came from an automatic source.
+    /// </summary>
+    public bool HasAutomaticStand => !string.IsNullOrWhiteSpace(AllocatorStand) ||
+        (!string.IsNullOrWhiteSpace(AllocatedBay) && string.IsNullOrWhiteSpace(Gate));
+
+    /// <summary>
+    /// Gets the airport used for stand allocator lookups.
+    /// </summary>
+    public string StandAllocatorAirport => StripType == StripType.ARRIVAL ? FDR.DesAirport : FDR.DepAirport;
+
+    /// <summary>
     /// Gets the PDC request for this strip, if applicable.
     /// </summary>
     public PDCRequest? PDCRequest => _bayManager.AerodromeState.PDCRequests.FirstOrDefault(x => x.Callsign == FDR.Callsign);
@@ -426,22 +583,30 @@ public sealed class Strip : IDisposable
     {
         get
         {
+            if (StripType == StripType.ARRIVAL)
+            {
+                var routeStarRunway = StarRunwayFromRoute().Runway;
+                if (!string.IsNullOrWhiteSpace(routeStarRunway))
+                {
+                    return routeStarRunway;
+                }
+
+                if (FDR.STAR is not null)
+                {
+                    var starRunway = SidRunwayFromRaw(FDR.STAR.Name).Runway;
+                    if (!string.IsNullOrWhiteSpace(starRunway))
+                    {
+                        return starRunway;
+                    }
+                }
+
+                return FDR.ArrivalRunway != null ? FDR.ArrivalRunway.Name : string.Empty;
+            }
+
             var routeRunway = SidRunwayFromRoute().Runway;
             if (!string.IsNullOrWhiteSpace(routeRunway))
             {
                 return routeRunway;
-            }
-
-            var routeStarRunway = StarRunwayFromRoute().Runway;
-            if (StripType == StripType.ARRIVAL && !string.IsNullOrWhiteSpace(routeStarRunway))
-            {
-                return routeStarRunway;
-            }
-
-            var sidRunway = SidRunwayFromRaw(FDR.SID?.Name ?? string.Empty).Runway;
-            if (!string.IsNullOrWhiteSpace(sidRunway))
-            {
-                return sidRunway;
             }
 
             if ((StripType == StripType.DEPARTURE || StripType == StripType.LOCAL) && FDR.DepartureRunway != null)
@@ -452,16 +617,13 @@ public sealed class Strip : IDisposable
                 }
             }
 
-            if (StripType == StripType.ARRIVAL && FDR.STAR is not null)
+            var sidRunway = SidRunwayFromRaw(FDR.SID?.Name ?? string.Empty).Runway;
+            if (!string.IsNullOrWhiteSpace(sidRunway))
             {
-                var starRunway = SidRunwayFromRaw(FDR.STAR.Name).Runway;
-                if (!string.IsNullOrWhiteSpace(starRunway))
-                {
-                    return starRunway;
-                }
+                return sidRunway;
             }
 
-            return StripType == StripType.ARRIVAL && FDR.ArrivalRunway != null ? FDR.ArrivalRunway.Name : string.Empty;
+            return string.Empty;
         }
 
         set
@@ -899,6 +1061,18 @@ public sealed class Strip : IDisposable
     };
 
     /// <summary>
+    /// Gets a dictionary which contains the VFR next state for a given state.
+    /// </summary>
+    private static Dictionary<StripBay, StripBay> NextBayVfr { get; } = new()
+    {
+        { StripBay.BAY_VFR_PENDING, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_VFR_WEST_NORTH, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_VFR_EAST_SOUTH, StripBay.BAY_RUNWAY },
+        { StripBay.BAY_RUNWAY, StripBay.BAY_OUT },
+        { StripBay.BAY_OUT, StripBay.BAY_DEAD },
+    };
+
+    /// <summary>
     /// Gets a dictionary which contains the arrival next state for a given state.
     /// </summary>
     private static Dictionary<StripBay, StripBay> NextBayArr { get; } = new()
@@ -947,6 +1121,10 @@ public sealed class Strip : IDisposable
             DepartureFrequency = sc.DepartureFrequency,
             GlobalOpData = sc.FDR.GlobalOpData,
             InhibitedAlerts = sc.InhibitedAlerts,
+            FreeBayX = sc.FreeBayX,
+            FreeBayY = sc.FreeBayY,
+            WakeTimerStartedAt = sc.WakeTimerStartedAt?.ToString(CultureInfo.InvariantCulture) ?? "\0",
+            WakeTimerDurationSeconds = (int)sc.WakeTimerDuration.TotalSeconds,
         };
 
         return scDTO;
@@ -977,6 +1155,7 @@ public sealed class Strip : IDisposable
         if (TakeOffTime is null)
         {
             TakeOffTime = DateTime.UtcNow;
+            AirborneSince ??= DateTime.UtcNow;
             CoordinateStrip();
         }
         else
@@ -985,6 +1164,144 @@ public sealed class Strip : IDisposable
         }
 
         _ = SyncStrip();
+    }
+
+    /// <summary>
+    /// Advances the ready box through ready, wake timer, and clear states.
+    /// </summary>
+    public void AdvanceReadyWakeState()
+    {
+        if (!Ready)
+        {
+            Ready = true;
+            ClearWakeTimer();
+            return;
+        }
+
+        if (WakeTimerStartedAt is null)
+        {
+            StartWakeTimer();
+            return;
+        }
+
+        Ready = false;
+        ClearWakeTimer();
+    }
+
+    /// <summary>
+    /// Starts or restarts the wake turbulence count-up timer.
+    /// </summary>
+    public void ToggleWakeTimer()
+    {
+        if (WakeTimerStartedAt is not null)
+        {
+            ClearWakeTimer();
+        }
+        else
+        {
+            StartWakeTimer();
+        }
+
+        _ = SyncStrip();
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the wake timer is currently within its timing window.
+    /// </summary>
+    public bool WakeTimerActive => WakeTimerStartedAt is not null && DateTime.UtcNow - WakeTimerStartedAt.Value < WakeTimerDuration;
+
+    /// <summary>
+    /// Gets the ready box display text.
+    /// </summary>
+    public string ReadyDisplayText
+    {
+        get
+        {
+            if (!Ready)
+            {
+                return string.Empty;
+            }
+
+            if (WakeTimerStartedAt is null)
+            {
+                return "RDY";
+            }
+
+            return $"{WakeTimerStartedAt.Value.ToString("HHmm", CultureInfo.InvariantCulture)}\n{WakeTimerText}";
+        }
+    }
+
+    /// <summary>
+    /// Gets the wake timer elapsed display text.
+    /// </summary>
+    public string WakeTimerText
+    {
+        get
+        {
+            if (WakeTimerStartedAt is null)
+            {
+                return string.Empty;
+            }
+
+            var elapsed = DateTime.UtcNow - WakeTimerStartedAt.Value;
+            if (elapsed < TimeSpan.Zero)
+            {
+                elapsed = TimeSpan.Zero;
+            }
+
+            if (WakeTimerDuration > TimeSpan.Zero && elapsed > WakeTimerDuration)
+            {
+                elapsed = WakeTimerDuration;
+            }
+
+            return $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
+        }
+    }
+
+    /// <summary>
+    /// Updates the airborne timestamp and reports whether the departure should be removed.
+    /// </summary>
+    /// <param name="groundSpeed">Aircraft ground speed.</param>
+    /// <returns>True if the strip should be deleted.</returns>
+    public bool ShouldRemoveAfterAirborne(int groundSpeed)
+    {
+        if (StripType == StripType.ARRIVAL)
+        {
+            return false;
+        }
+
+        if (groundSpeed <= 50)
+        {
+            AirborneSince = null;
+            return false;
+        }
+
+        AirborneSince ??= DateTime.UtcNow;
+        return DateTime.UtcNow - AirborneSince.Value >= TimeSpan.FromMinutes(5);
+    }
+
+    private TimeSpan DetermineWakeTimerDuration()
+    {
+        var wake = (FDR.AircraftWake ?? string.Empty).Trim().ToUpperInvariant();
+        return wake switch
+        {
+            "J" or "S" or "SUPER" or "H" or "HEAVY" or "LARGE" => TimeSpan.FromMinutes(4),
+            "M" or "MEDIUM" => TimeSpan.FromMinutes(3),
+            "L" or "LIGHT" or "SMALL" => TimeSpan.FromMinutes(2),
+            _ => TimeSpan.FromMinutes(2),
+        };
+    }
+
+    private void StartWakeTimer()
+    {
+        WakeTimerDuration = DetermineWakeTimerDuration();
+        WakeTimerStartedAt = DateTime.UtcNow;
+    }
+
+    private void ClearWakeTimer()
+    {
+        WakeTimerStartedAt = null;
+        WakeTimerDuration = TimeSpan.Zero;
     }
 
     /// <summary>
@@ -1037,20 +1354,29 @@ public sealed class Strip : IDisposable
         {
             Shared.AlertTypes.RFL => Controller.CFLAlertActive(),
             Shared.AlertTypes.SSR => !SquawkCorrect &&
-                                CurrentBay >= StripBay.BAY_TAXI &&
+                                IsTaxiOrLaterBay(CurrentBay) &&
                                 CurrentBay != StripBay.BAY_COORDINATOR &&
                                 StripType == StripType.DEPARTURE,
-            Shared.AlertTypes.ROUTE => DodgyRoute,
-            Shared.AlertTypes.NO_HDG => CurrentBay >= StripBay.BAY_HOLDSHORT &&
-                                CurrentBay != StripBay.BAY_COORDINATOR &&
+            Shared.AlertTypes.ROUTE => !IsVfr && DodgyRoute,
+            Shared.AlertTypes.NO_HDG => IsHoldingOrRunwayBay(CurrentBay) &&
                                 string.IsNullOrEmpty(HDG) &&
-                                SID.Length == 3 &&
+                                IsHeadingRequiredForSID() &&
                                 StripType == StripType.DEPARTURE,
             Shared.AlertTypes.READY => !Ready && (CurrentBay == StripBay.BAY_HOLDSHORT || CurrentBay == StripBay.BAY_RUNWAY) && StripType != StripType.ARRIVAL,
             Shared.AlertTypes.VFR_SID => VFRSIDAssigned,
             Shared.AlertTypes.DEP_CHANGED => DepartureChanged,
             _ => throw new ArgumentException("Unknown alert type."),
         };
+    }
+
+    private static bool IsTaxiOrLaterBay(StripBay bay)
+    {
+        return bay is StripBay.BAY_TAXI or StripBay.BAY_HOLDSHORT or StripBay.BAY_RUNWAY or StripBay.BAY_OUT;
+    }
+
+    private static bool IsHoldingOrRunwayBay(StripBay bay)
+    {
+        return bay is StripBay.BAY_HOLDSHORT or StripBay.BAY_RUNWAY;
     }
 
     /// <summary>
@@ -1238,6 +1564,12 @@ public sealed class Strip : IDisposable
                 return;
             }
 
+            if (IsVfr)
+            {
+                DodgyRoute = false;
+                return;
+            }
+
             // Route fetch will retry every minute.
             if (ValidRoutes is null)
             {
@@ -1252,7 +1584,10 @@ public sealed class Strip : IDisposable
                 }
                 finally
                 {
-                    _routeFetchSemaphore.Release();
+                    if (!_disposed)
+                    {
+                        _routeFetchSemaphore.Release();
+                    }
                 }
             }
 
@@ -1302,11 +1637,11 @@ public sealed class Strip : IDisposable
                 stripBayResultDict = NextBayArr;
                 break;
             case StripType.DEPARTURE:
-                stripBayResultDict = NextBayDep;
+                stripBayResultDict = IsVfr ? NextBayVfr : NextBayDep;
                 break;
 
             case StripType.LOCAL:
-                stripBayResultDict = NextBayLocal;
+                stripBayResultDict = IsVfr ? NextBayVfr : NextBayLocal;
                 break;
             default:
                 return;
@@ -1331,7 +1666,7 @@ public sealed class Strip : IDisposable
                 // SIDTriggering into a not-loaded stripbay (or into BAY_DEAD),
                 if (proposedNewBay is null)
                 {
-                    break;
+                    continue;
                 }
 
                 if (proposedNewBay != currentStripBay)
@@ -1655,6 +1990,24 @@ public sealed class Strip : IDisposable
     /// </summary>
     public void Dispose()
     {
+        _disposed = true;
         _routeFetchSemaphore.Dispose();
+    }
+
+    private bool IsHeadingRequiredForSID()
+    {
+        if (SID.Length == 3)
+        {
+            return true;
+        }
+
+        var found = false;
+
+        foreach (var sid in AerodromeManager.RequireHeadingSIDs)
+        {
+            found |= new Regex(sid).IsMatch(SID);
+        }
+
+        return found;
     }
 }

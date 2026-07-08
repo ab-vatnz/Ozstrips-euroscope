@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using MaxRumsey.OzStripsPlugin.GUI.DTO.XML;
 using MaxRumsey.OzStripsPlugin.GUI.Shared;
@@ -302,6 +303,55 @@ public partial class DropDown : BaseForm
             strip.Gate = s;
             _ = strip.SyncStrip();
         });
+    }
+
+    /// <summary>
+    /// Shows a stand allocator drop down for the specified strip, if the current airport is supported.
+    /// </summary>
+    /// <param name="strip">Strip.</param>
+    public static async void ShowStandAllocatorDropDown(Strip strip)
+    {
+        try
+        {
+            var options = await StandAllocatorService.Instance.GetStandOptionsAsync(strip);
+            if (options.Count == 0)
+            {
+                ShowGateDropDown(strip);
+                return;
+            }
+
+            var standMap = options.ToDictionary(x => x.StandId.Trim().ToUpperInvariant(), x => x.StandId.Trim(), StringComparer.OrdinalIgnoreCase);
+            var items = standMap.Keys.Select(x => new DropDownItem(DropDownItem.DropDownItemType.BUTTON, x)).ToArray();
+            CreateDropDown(items, strip.FDR.Callsign, s =>
+            {
+                if (standMap.TryGetValue(s, out var standId))
+                {
+                    _ = AssignAllocatorStand(strip, standId);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex, "OzStrips Stand Allocator");
+            Util.ShowWarnBox("Stand allocator did not return available stands: " + ex.Message);
+            ShowGateDropDown(strip);
+        }
+    }
+
+    private static async Task AssignAllocatorStand(Strip strip, string standId)
+    {
+        try
+        {
+            var response = await StandAllocatorService.Instance.ReassignStandAsync(strip, standId);
+            var selectedStand = string.IsNullOrWhiteSpace(response.Assignment?.StandId) ? standId : response.Assignment.StandId;
+            strip.ApplyStandAllocatorSelection(selectedStand);
+            _ = strip.SyncStrip();
+        }
+        catch (Exception ex)
+        {
+            Util.LogError(ex, "OzStrips Stand Allocator");
+            Util.ShowWarnBox("Stand allocator could not assign the stand: " + ex.Message);
+        }
     }
 
     /// <summary>

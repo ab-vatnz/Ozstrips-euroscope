@@ -353,6 +353,7 @@ public class BayRepository(FlowLayoutPanel main, BayManager sender)
         var xEach = (main.Size.Width - (main.VerticalScroll.Visible ? 17 : 0)) / _currentLayoutIndex;
 
         var allocatedSpace = new int[_currentLayoutIndex];
+        var weightedLayout = Bays.Any(x => Math.Abs(x.HeightWeight - 1) > 0.000001);
 
         foreach (var bay in Bays)
         {
@@ -368,6 +369,15 @@ public class BayRepository(FlowLayoutPanel main, BayManager sender)
 
             var minBayHeight = smartResize ? 70 : 200;
 
+            if (weightedLayout)
+            {
+                var columnBays = Bays.Where(x => x.VerticalBoardNumber == bay.VerticalBoardNumber).ToList();
+                var totalWeight = columnBays.Sum(x => x.HeightWeight <= 0 ? 1 : x.HeightWeight);
+                var bayWeight = bay.HeightWeight <= 0 ? 1 : bay.HeightWeight;
+                height = (int)Math.Round((yMain - 4) * bayWeight / totalWeight);
+                minBayHeight = 70;
+            }
+
             // if height less than this, set to this.
             if (height < minBayHeight)
             {
@@ -376,7 +386,7 @@ public class BayRepository(FlowLayoutPanel main, BayManager sender)
 
             var reqheight = bay.GetRequestedHeight();
 
-            if (smartResize && reqheight > 0)
+            if (!weightedLayout && smartResize && reqheight > 0)
             {
                 // 36 = header height.
                 height = 36 + reqheight;
@@ -388,7 +398,7 @@ public class BayRepository(FlowLayoutPanel main, BayManager sender)
                     height = (yMain - 4) / 2;
                 }
             }
-            else if (smartResize)
+            else if (!weightedLayout && smartResize)
             {
                 height = 70;
             }

@@ -22,6 +22,12 @@ public class LayoutElement
     public int Column { get; set; }
 
     /// <summary>
+    /// Gets or sets the relative height weight inside the column.
+    /// </summary>
+    [XmlAttribute("Weight")]
+    public double Weight { get; set; } = 1;
+
+    /// <summary>
     /// Gets or sets the correlated bay.
     /// </summary>
     internal BayDefinition? Bay { get; set; }

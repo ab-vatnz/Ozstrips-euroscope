@@ -76,6 +76,18 @@ public class Bay : System.IDisposable
     public List<StripBay> BayTypes { get; }
 
     /// <summary>
+    /// Gets or sets the relative bay height weight within its column.
+    /// </summary>
+    public double HeightWeight { get; set; } = 1;
+
+    /// <summary>
+    /// Gets a value indicating whether strips in this bay can be freely positioned.
+    /// </summary>
+    public bool FreeMove => BayTypes.Contains(StripBay.BAY_RUNWAY) ||
+        BayTypes.Contains(StripBay.BAY_VFR_WEST_NORTH) ||
+        BayTypes.Contains(StripBay.BAY_VFR_EAST_SOUTH);
+
+    /// <summary>
     /// Gets the div position.
     /// </summary>
     public int DivPosition
@@ -204,6 +216,16 @@ public class Bay : System.IDisposable
     /// <remarks>todo: check for dupes.</remarks>
     public void AddStrip(Strip stripController, bool inhibitreorders)
     {
+        if (!FreeMove)
+        {
+            stripController.ClearFreeBayPosition();
+        }
+        else if (!stripController.HasFreeBayPosition)
+        {
+            var y = Strips.Count(x => x.Type == StripItemType.STRIP) * BayRenderController.StripHeight;
+            stripController.SetFreeBayPosition(0, y);
+        }
+
         var strip = new StripListItem
         {
             Strip = stripController,

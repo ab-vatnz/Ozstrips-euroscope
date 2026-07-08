@@ -111,7 +111,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 canvas.DrawRect(baseX + 1.5f, baseY + 1.5f, element.W - 2.5f, element.H - 2.5f, highlightPaint);
             }
 
-            canvas.DrawText(text, new SKPoint(baseX + (element.W / 2), baseY + ((fontsize + element.H) / 2)), SKTextAlign.Center, new SKFont(typeface, fontsize), textpaint);
+            DrawElementText(canvas, text, baseX, baseY, element.W, element.H, fontsize, typeface, textpaint);
         }
 
         if (_bayRenderController.Bay.BayManager.AerodromeState.InvalidDestinationAircraft.Contains(_strip.FDR.Callsign))
@@ -339,6 +339,9 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Actions.MOD_STD:
                 _strip.Controller.OpenCLXBayModal("std");
                 break;
+            case StripElements.Actions.MOD_ALLOCATOR_STD:
+                DropDown.ShowStandAllocatorDropDown(_strip);
+                break;
             case StripElements.Actions.MOD_GLOP:
                 _strip.Controller.OpenCLXBayModal("glop");
                 break;
@@ -366,6 +369,9 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Actions.OPEN_CDM:
                 _strip.Controller.OpenCDM();
                 break;
+            case StripElements.Actions.WAKE_TIMER:
+                _strip.ToggleWakeTimer();
+                break;
             case StripElements.Actions.SET_READY:
                 _strip.Controller.ToggleReady();
                 break;
@@ -376,7 +382,9 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 _strip.CockStrip();
                 break;
             case StripElements.Actions.OPEN_PDC:
-                if (_strip.PDCRequest?.Flags.HasFlag(PDCRequest.PDCFlags.REQUESTED) == true && _strip.StripType != StripType.ARRIVAL)
+                if (EuroScopeFeatureFlags.SupportsPdcQueue &&
+                    _strip.PDCRequest?.Flags.HasFlag(PDCRequest.PDCFlags.REQUESTED) == true &&
+                    _strip.StripType != StripType.ARRIVAL)
                 {
                     if (!_strip.PDCRequest.Flags.HasFlag(PDCRequest.PDCFlags.ACKNOWLEDGED))
                     {
@@ -388,7 +396,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                     break;
                 }
 
-                _strip.Controller.OpenVatSysPDCWindow();
+                _strip.Controller.OpenPDCWindow();
                 break;
             case StripElements.Actions.OPEN_PM:
                 MMI.OpenPMWindow(_strip.FDR.Callsign);
@@ -490,7 +498,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Values.RWY:
                 return _strip.RWY;
             case StripElements.Values.READY:
-                return _strip.Ready ? "RDY" : string.Empty;
+                return _strip.ReadyDisplayText;
             case StripElements.Values.CLX:
                 return _strip.CLX;
             case StripElements.Values.DEPFREQ:
@@ -517,12 +525,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
 
                 return _strip.CFL;
             case StripElements.Values.STAND:
-                if (!string.IsNullOrEmpty(_strip.AllocatedBay) && string.IsNullOrEmpty(_strip.Gate))
-                {
-                    return _strip.AllocatedBay;
-                }
-
-                return _strip.Gate;
+                return _strip.DisplayStand;
             case StripElements.Values.GLOP:
                 return _strip.FDR.GlobalOpData;
             case StripElements.Values.REMARK:
@@ -568,7 +571,7 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
 
                 break;
             case StripElements.Values.STAND:
-                if (!string.IsNullOrEmpty(_strip.AllocatedBay) && string.IsNullOrEmpty(_strip.Gate))
+                if (_strip.HasAutomaticStand)
                 {
                     return SKColors.LightGray;
                 }
@@ -644,6 +647,11 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Values.FIRST_WPT:
                 return _strip.IsAlertActive(Shared.AlertTypes.ROUTE) ? SKColors.Orange : SKColors.Empty;
             case StripElements.Values.READY:
+                if (_strip.Ready)
+                {
+                    return _strip.WakeTimerStartedAt is null ? SKColors.LimeGreen : SKColors.LightGreen;
+                }
+
                 var colour = SKColor.Empty;
                 if (_strip.IsAlertActive(Shared.AlertTypes.READY))
                 {
@@ -684,11 +692,28 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
         return SKColors.Black;
     }
 
+    private static void DrawElementText(SKCanvas canvas, string text, float baseX, float baseY, float width, float height, int fontSize, SKTypeface typeface, SKPaint textPaint)
+    {
+        var font = new SKFont(typeface, fontSize);
+        var lines = text.Split(new[] { '\n' }, StringSplitOptions.None);
+        var lineHeight = fontSize + 2;
+        var firstBaseline = baseY + ((height - (lineHeight * lines.Length)) / 2f) + fontSize;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            canvas.DrawText(lines[i], new SKPoint(baseX + (width / 2), firstBaseline + (i * lineHeight)), SKTextAlign.Center, font, textPaint);
+        }
+    }
+
     private void DrawStripBackground(SKCanvas canvas)
     {
         var color = SKColor.Empty;
 
-        color = SKColor.Parse(AerodromeManager.StripColours.FirstOrDefault(x => x.Type == _strip.StripType)?.Colour ?? throw new Exception($"Could not load strip colour for type {_strip.StripType}"));
+        var colourType = _strip.IsVfr
+            ? StripType.LOCAL
+            : _strip.StripType == StripType.ARRIVAL ? StripType.ARRIVAL : StripType.DEPARTURE;
+
+        color = SKColor.Parse(AerodromeManager.StripColours.FirstOrDefault(x => x.Type == colourType)?.Colour ?? throw new Exception($"Could not load strip colour for type {colourType}"));
 
         if (LastTransmitModifier && _bayRenderController.Bay.BayManager.LastTransmitManager.LastReceivedFrom != _strip.FDR.Callsign)
         {

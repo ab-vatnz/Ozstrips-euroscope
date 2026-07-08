@@ -134,6 +134,11 @@ public class StripController
     /// <returns>Active.</returns>
     public bool CFLAlertActive()
     {
+        if (Strip.IsVfr)
+        {
+            return false;
+        }
+
         if (Strip.StripType == StripType.DEPARTURE && FDR.RFL == 14000)
         {
             return true;
@@ -144,82 +149,24 @@ public class StripController
             return CFLAlertActiveNOSE();
         }
 
-        var routePositions = FDR.ParsedRoute.Select(x => x.Intersection.LatLong).Where(IsUsablePosition).ToList();
-        var first = routePositions.FirstOrDefault();
-        var last = routePositions.LastOrDefault();
-        var active = false;
-
-        if (first is null ||
-            last is null ||
-            SamePosition(first, last))
-        {
-            return false;
-        }
-
-        int[] eastRVSM = [41000, 45000, 49000];
-        int[] westRVSM = [43000, 47000, 51000];
-
-        var track = Conversions.CalculateTrack(first, last);
-        var variation = LogicalPositions.Positions.FirstOrDefault(e => e.Name == Strip.ParentAerodrome)?.MagneticVariation ?? 0;
-        track += variation;
-
-        var even = true;
-
-        if (track is >= 0 and < 180)
-        {
-            even = false;
-        }
-
-        var digit = int.Parse(Strip.RFL[1].ToString(), CultureInfo.InvariantCulture);
-        var shouldbeeven = digit % 2 == 0;
-
-        if (even != shouldbeeven && FDR.RFL >= 3000 && Strip.StripType == StripType.DEPARTURE)
-        {
-            active = true;
-        }
-        else
-        {
-            active = false;
-        }
-
-        if (FDR.RFL >= 41000 && ((even && westRVSM.Contains(FDR.RFL)) || (!even && eastRVSM.Contains(FDR.RFL))))
-        {
-            active = false;
-        }
-        else if (FDR.RFL >= 41000 && Strip.StripType == StripType.DEPARTURE)
-        {
-            active = true;
-        }
-
-        return active;
+        return CFLAlertActiveCore();
     }
 
     private bool CFLAlertActiveNOSE()
     {
-        var routePositions = FDR.ParsedRoute.Select(x => x.Intersection.LatLong).Where(IsUsablePosition).ToList();
-        var first = routePositions.FirstOrDefault();
-        var last = routePositions.LastOrDefault();
-        var active = false;
+        return CFLAlertActiveCore();
+    }
+
+    private bool CFLAlertActiveCore()
+    {
+        var (first, last) = GetLevelRulePositions();
 
         if (first is null ||
             last is null ||
-            SamePosition(first, last))
+            SamePosition(first, last) ||
+            Strip.StripType != StripType.DEPARTURE)
         {
             return false;
-        }
-
-        int[] eastRVSM = [41000, 45000, 49000];
-        int[] westRVSM = [43000, 47000, 51000];
-
-        var track = Conversions.CalculateTrack(first, last);
-        var variation = LogicalPositions.Positions.FirstOrDefault(e => e.Name == Strip.ParentAerodrome)?.MagneticVariation ?? 0;
-        track += variation;
-
-        var even = false;
-
-        if (track is >= 90 and < 270)
-        {
-            even = true;
         }
 
         if (Strip.RFL.Length < 2)
@@ -227,55 +174,74 @@ public class StripController
             return false;
         }
 
-        var digit = int.Parse(Strip.RFL[1].ToString(), CultureInfo.InvariantCulture);
-        var shouldbeeven = digit % 2 == 0;
+        var requiresEvenLevel = RequiresEvenLevel(first, last);
+        var shouldBeEven = int.Parse(Strip.RFL[1].ToString(), CultureInfo.InvariantCulture) % 2 == 0;
 
-        if (even != shouldbeeven && FDR.RFL >= 3000 && Strip.StripType == StripType.DEPARTURE)
+        if (FDR.RFL >= 41000)
         {
-            active = true;
-        }
-        else
-        {
-            active = false;
+            return !IsValidHighLevel(FDR.RFL, requiresEvenLevel);
         }
 
-        if (FDR.RFL >= 41000 && ((even && westRVSM.Contains(FDR.RFL)) || (!even && eastRVSM.Contains(FDR.RFL))))
-        {
-            active = false;
-        }
-        else if (FDR.RFL >= 41000 && Strip.StripType == StripType.DEPARTURE)
-        {
-            active = true;
-        }
-
-        return active;
+        return requiresEvenLevel != shouldBeEven && FDR.RFL >= 3000;
     }
 
-    private static bool IsUsablePosition(object? position)
+    private (Coordinate? First, Coordinate? Last) GetLevelRulePositions()
     {
-        var coordinates = ReadCoordinates(position);
-        return Math.Abs(coordinates.Latitude) > 0.000001 || Math.Abs(coordinates.Longitude) > 0.000001;
-    }
-
-    private static bool SamePosition(object first, object second)
-    {
-        var firstCoordinates = ReadCoordinates(first);
-        var secondCoordinates = ReadCoordinates(second);
-        return Math.Abs(firstCoordinates.Latitude - secondCoordinates.Latitude) < 0.000001 &&
-            Math.Abs(firstCoordinates.Longitude - secondCoordinates.Longitude) < 0.000001;
-    }
-
-    private static (double Latitude, double Longitude) ReadCoordinates(object? position)
-    {
-        if (position is null)
+        if (IsNzDomesticFlight())
         {
-            return (0, 0);
+            var departure = Airspace2.GetAirport(FDR.DepAirport)?.LatLong;
+            var destination = Airspace2.GetAirport(FDR.DesAirport)?.LatLong;
+
+            if (IsUsablePosition(departure) && IsUsablePosition(destination))
+            {
+                return (departure, destination);
+            }
         }
 
-        var type = position.GetType();
-        var latitude = type.GetProperty("Latitude")?.GetValue(position);
-        var longitude = type.GetProperty("Longitude")?.GetValue(position);
-        return (Convert.ToDouble(latitude, CultureInfo.InvariantCulture), Convert.ToDouble(longitude, CultureInfo.InvariantCulture));
+        var routePositions = FDR.ParsedRoute.Select(x => x.Intersection.LatLong).Where(IsUsablePosition).ToList();
+        return (routePositions.FirstOrDefault(), routePositions.LastOrDefault());
+    }
+
+    private bool RequiresEvenLevel(Coordinate first, Coordinate last)
+    {
+        if (IsNzDomesticFlight())
+        {
+            return last.Latitude <= first.Latitude;
+        }
+
+        var variation = LogicalPositions.Positions.FirstOrDefault(e => e.Name == Strip.ParentAerodrome)?.MagneticVariation ?? 0;
+        var track = NormalizeTrack(Conversions.CalculateTrack(first, last) + variation);
+        return track is >= 180 and < 360;
+    }
+
+    private bool IsNzDomesticFlight()
+    {
+        return FDR.DepAirport.StartsWith("NZ", StringComparison.OrdinalIgnoreCase) &&
+            FDR.DesAirport.StartsWith("NZ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsValidHighLevel(int level, bool requiresEvenLevel)
+    {
+        int[] oddDirectionRvsm = [41000, 45000, 49000];
+        int[] evenDirectionRvsm = [43000, 47000, 51000];
+        return requiresEvenLevel ? evenDirectionRvsm.Contains(level) : oddDirectionRvsm.Contains(level);
+    }
+
+    private static bool IsUsablePosition(Coordinate? position)
+    {
+        return position is not null && (Math.Abs(position.Latitude) > 0.000001 || Math.Abs(position.Longitude) > 0.000001);
+    }
+
+    private static double NormalizeTrack(double track)
+    {
+        track %= 360;
+        return track < 0 ? track + 360 : track;
+    }
+
+    private static bool SamePosition(Coordinate first, Coordinate second)
+    {
+        return Math.Abs(first.Latitude - second.Latitude) < 0.000001 &&
+            Math.Abs(first.Longitude - second.Longitude) < 0.000001;
     }
 
     /// <summary>

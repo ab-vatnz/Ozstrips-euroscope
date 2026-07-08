@@ -105,4 +105,26 @@ public class StripDTO
     /// Gets or sets the list of inhibited alerts.
     /// </summary>
     public AlertTypes InhibitedAlerts { get; set; }
+
+    /// <summary>
+    /// Gets or sets the free-bay x position.
+    /// </summary>
+    public int? FreeBayX { get; set; }
+
+    /// <summary>
+    /// Gets or sets the free-bay y position.
+    /// </summary>
+    public int? FreeBayY { get; set; }
+
+    /// <summary>
+    /// Gets or sets the wake timer start time. This is local display state only.
+    /// </summary>
+    [JsonIgnore]
+    public string WakeTimerStartedAt { get; set; } = "\0";
+
+    /// <summary>
+    /// Gets or sets the wake timer duration in seconds. This is local display state only.
+    /// </summary>
+    [JsonIgnore]
+    public int WakeTimerDurationSeconds { get; set; }
 }

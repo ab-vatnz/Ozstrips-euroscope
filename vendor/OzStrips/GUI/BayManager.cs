@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -310,16 +311,31 @@ public class BayManager
     /// </summary>
     /// <param name="bay">The bay.</param>
     /// <returns>Task.</returns>
-    public async Task DropStrip(Bay bay)
+    public async Task DropStrip(Bay bay, Point? freePosition = null)
     {
         try
         {
             if (PickedStrip != null)
             {
+                if (bay.FreeMove && freePosition.HasValue)
+                {
+                    PickedStrip.SetFreeBayPosition(freePosition.Value.X, freePosition.Value.Y);
+                }
+                else if (!bay.FreeMove)
+                {
+                    PickedStrip.ClearFreeBayPosition();
+                }
+
                 var res = await MoveStrip(bay, PickedStrip);
                 if (res)
                 {
                     PickedStripItem = bay.GetListItem(PickedStrip);
+                    RemovePicked(true);
+                }
+                else if (bay.FreeMove && freePosition.HasValue)
+                {
+                    await PickedStrip.SyncStrip();
+                    bay.ResizeBay();
                     RemovePicked(true);
                 }
             }

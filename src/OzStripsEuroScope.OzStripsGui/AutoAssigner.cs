@@ -27,7 +27,7 @@ internal class AutoAssigner
     private readonly Regex _rwyNameRegex = new(@"^(\d{2}[LRC]?|[LRC])$");
     private readonly Regex _euroScopeApproachRunwayRegex = new(@"\bAPPROACH\s+RUNWAYS?\s+(?<runways>.*?)(?=\b(?:DRY|WET|FRICTION|DEPARTURE|TRANSITION|WEATHER|WIND|VISIBILITY|CLOUDS|TEMPERATURE|DEW|QNH|NO\s+SIGNIFICANT|ACKNOWLEDGE)\b|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private readonly Regex _runwayTokenRegex = new(@"\b(?<number>[0-3]?\d)\s*(?<side>L|R|C|LEFT|RIGHT|CENTRE|CENTER)?\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    private readonly Regex _tempRegex = new(@"\n?\s*\+?\s*\[TMP\] (-?\d{1,2})");
+    private readonly Regex _tempRegex = new(@"\n?\s*\+?\s*\[?TMP\]?:? (-?\d{1,2})");
 
     internal AutoAssigner(BayManager bayManager)
     {
@@ -253,9 +253,25 @@ internal class AutoAssigner
             }
         }
 
-        if (rule.SID.Count > 0 && rule.SID.Contains(result.SID) != matchAsTrue)
+        if (rule.SID.Count > 0)
         {
-            return false;
+            var matched = false;
+            var accSid = string.IsNullOrEmpty(strip.SID) ? result.SID : strip.SID;
+
+            foreach (var sid in rule.SID)
+            {
+                var regex = new Regex(sid, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+                if (regex.IsMatch(accSid))
+                {
+                    matched = true;
+                }
+            }
+
+            if (matched != matchAsTrue)
+            {
+                return false;
+            }
         }
 
         if (rule.AtisDepRunway.Count > 0)
