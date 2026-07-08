@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MaxRumsey.OzStripsPlugin.GUI.Shared;
 
 namespace MaxRumsey.OzStripsPlugin.GUI;
 
+#pragma warning disable CA1001 // Singleton service lives for the process lifetime.
 internal sealed class StandAllocatorService
 {
     private static readonly TimeSpan AirportCacheDuration = TimeSpan.FromMinutes(5);
@@ -185,3 +187,4 @@ internal sealed class StandAllocatorService
         public IReadOnlyList<StandAllocatorArrivalSummary> Arrivals { get; }
     }
 }
+#pragma warning restore CA1001

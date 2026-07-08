@@ -7,6 +7,7 @@ using System.Linq;
 using System.Windows.Forms;
 using System.Windows.Input;
 using System.Windows.Media;
+using MaxRumsey.OzStripsPlugin.GUI.Controls;
 using MaxRumsey.OzStripsPlugin.GUI.DTO;
 using MaxRumsey.OzStripsPlugin.GUI.DTO.XML;
 using MaxRumsey.OzStripsPlugin.GUI.Properties;

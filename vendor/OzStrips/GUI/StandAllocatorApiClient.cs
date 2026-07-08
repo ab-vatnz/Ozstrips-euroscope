@@ -9,6 +9,7 @@ using Newtonsoft.Json.Linq;
 
 namespace MaxRumsey.OzStripsPlugin.GUI;
 
+#pragma warning disable CA1822 // Instance methods keep the API client mockable and consistent with existing plugin code.
 internal sealed class StandAllocatorApiClient
 {
     private static readonly HttpClient HttpClient = new()
@@ -151,3 +152,4 @@ internal sealed class StandAllocatorApiClient
         return trimmedBaseUrl + relativePath;
     }
 }
+#pragma warning restore CA1822
