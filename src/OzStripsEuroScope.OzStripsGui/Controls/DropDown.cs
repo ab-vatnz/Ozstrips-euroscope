@@ -20,7 +20,7 @@ public partial class DropDown : BaseForm
     private const int MaxItemWidth = 260;
     private const int ItemHeight = 26;
     private const int TitleHeight = 24;
-    private const int MaxVisibleItems = 9;
+    private const int MaxVisibleItems = 10;
     private readonly int _itemWidth;
 
     /// <summary>

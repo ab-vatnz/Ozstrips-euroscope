@@ -13,6 +13,11 @@ namespace MaxRumsey.OzStripsPlugin.GUI.Controls;
 /// </summary>
 public partial class DropDown : BaseForm
 {
+    private const int ItemWidth = 100;
+    private const int ItemHeight = 28;
+    private const int HeaderHeight = 25;
+    private const int MaxVisibleItems = 10;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="DropDown"/> class.
     /// </summary>
@@ -30,9 +35,12 @@ public partial class DropDown : BaseForm
         }
 
         PerformLayout();
-        flowLayoutPanel1.Size = new(100, 28 * items.Length);
-        ClientSize = new(100, (28 * items.Length) + 25);
-        MinimumSize = new(100, 28);
+        var visibleItems = Math.Max(1, Math.Min(items.Length, MaxVisibleItems));
+        flowLayoutPanel1.AutoScroll = items.Length > MaxVisibleItems;
+        flowLayoutPanel1.WrapContents = false;
+        flowLayoutPanel1.Size = new(ItemWidth + (flowLayoutPanel1.AutoScroll ? SystemInformation.VerticalScrollBarWidth : 0), ItemHeight * visibleItems);
+        ClientSize = new(flowLayoutPanel1.Width, flowLayoutPanel1.Height + HeaderHeight);
+        MinimumSize = new(ItemWidth, ItemHeight);
         MaximumSize = ClientSize;
         StartPosition = FormStartPosition.Manual;
         Location = Cursor.Position;
@@ -64,14 +72,14 @@ public partial class DropDown : BaseForm
             case DropDownItem.DropDownItemType.BUTTON:
                 element = new GenericButton();
                 element.Text = item.Text;
-                element.Size = new(100, 28);
+                element.Size = new(ItemWidth, ItemHeight);
                 element.MouseUp += Element_MouseUp;
                 break;
             case DropDownItem.DropDownItemType.FREETEXT:
                 var tb = new TextBox();
                 element = tb;
                 tb.Text = item.Text;
-                tb.Size = new(100, 28);
+                tb.Size = new(ItemWidth, ItemHeight);
                 tb.MaxLength = item.MaxLen;
                 tb.CharacterCasing = CharacterCasing.Upper;
                 element.KeyDown += (s, e) =>
