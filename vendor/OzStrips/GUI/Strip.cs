@@ -340,6 +340,25 @@ public sealed class Strip : IDisposable
     public async Task RefreshAllocatorStand()
     {
         var stand = await StandAllocatorService.Instance.GetStandForStripAsync(this);
+        if (StripType == StripType.DEPARTURE)
+        {
+            var lockedStand = !string.IsNullOrWhiteSpace(Gate) ? Gate : AllocatedBay;
+            if (!string.IsNullOrWhiteSpace(lockedStand))
+            {
+                UpdateAllocatorStandDisplay(lockedStand);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(stand))
+            {
+                AllocatedBay = stand;
+                UpdateAllocatorStandDisplay(stand);
+                _ = SyncStrip();
+            }
+
+            return;
+        }
+
         if (string.Equals(AllocatorStand, stand, StringComparison.OrdinalIgnoreCase))
         {
             return;
