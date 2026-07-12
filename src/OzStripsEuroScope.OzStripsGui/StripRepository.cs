@@ -128,6 +128,8 @@ public class StripRepository
         // todo: move this to strip class?
         try
         {
+            StripBayServerCompat.ApplyClientState(stripDTO);
+
             foreach (var strip in Strips)
             {
                 if (strip.StripKey.Matches(stripDTO.StripKey))

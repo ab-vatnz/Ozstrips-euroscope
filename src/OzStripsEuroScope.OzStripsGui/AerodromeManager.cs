@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using MaxRumsey.OzStripsPlugin.GUI.DTO;
 using MaxRumsey.OzStripsPlugin.GUI.DTO.XML;
@@ -133,17 +134,36 @@ public class AerodromeManager
     {
         get
         {
-            var completeList = _concernedAerodromes.ToList();
-            completeList.AddRange(ManuallySetAerodromes);
+            var supportedAerodromes = GetAutofillAerodromes();
+            var manualAerodromes = ManuallySetAerodromes
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.ToUpperInvariant())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var completeList = _concernedAerodromes
+                .Concat(ManuallySetAerodromes)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.ToUpperInvariant())
+                .ToList();
 
             if (AutoOpenAerodrome is not null)
             {
-                completeList.Add(AutoOpenAerodrome);
+                completeList.Add(AutoOpenAerodrome.ToUpperInvariant());
             }
 
             if (completeList.Count == 0)
             {
-                completeList.AddRange(_defaultAerodromes);
+                completeList.AddRange(supportedAerodromes.Count > 0 ? supportedAerodromes : _defaultAerodromes);
+            }
+            else if (supportedAerodromes.Count > 0)
+            {
+                completeList = completeList
+                    .Where(x => supportedAerodromes.Contains(x) || manualAerodromes.Contains(x))
+                    .ToList();
+
+                if (completeList.Count == 0)
+                {
+                    completeList.AddRange(supportedAerodromes);
+                }
             }
 
             completeList.Sort();
@@ -260,11 +280,45 @@ public class AerodromeManager
 
         _defaultAerodromes = Settings?.DefaultAerodromes?.ToList() ?? new List<string>();
         AerodromeAutoFillLocation = Settings?.AerodromeAutoFillLocation ?? string.Empty;
+        var autofillAerodromes = GetAutofillAerodromes();
+        if (autofillAerodromes.Count > 0)
+        {
+            _defaultAerodromes = autofillAerodromes;
+        }
+
         PDCFormat = Settings?.PDCFormat ?? string.Empty;
         StripColours = Settings?.StripColours ?? [];
         RadarTransInhibitedSIDS = Settings?.InhibitRadarTransSIDs ?? [];
         RequireHeadingSIDs = Settings?.RequireHeadingSIDs ?? [];
         UseNose = bool.TryParse(Settings?.UseNose, out var useNose) ? useNose : !string.IsNullOrWhiteSpace(Settings?.UseNose);
+    }
+
+    private static List<string> GetAutofillAerodromes()
+    {
+        if (string.IsNullOrWhiteSpace(AerodromeAutoFillLocation))
+        {
+            return [];
+        }
+
+        var basePath = AerodromeAutoFillLocation;
+        if (!Path.IsPathRooted(basePath))
+        {
+            basePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, basePath);
+        }
+
+        if (!Directory.Exists(basePath))
+        {
+            return [];
+        }
+
+        return Directory
+            .EnumerateFiles(basePath, "*.yml", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.EnumerateFiles(basePath, "*.yaml", SearchOption.TopDirectoryOnly))
+            .Select(x => Path.GetFileNameWithoutExtension(x).ToUpperInvariant())
+            .Where(x => x.Length == 4)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
     }
 
     private void SectorsChanged(object sender, EventArgs e)

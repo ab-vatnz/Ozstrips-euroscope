@@ -265,7 +265,7 @@ public sealed class SocketConn : IAsyncDisposable
     /// <returns>Task.</returns>
     public async Task SyncSC(Strip sc)
     {
-        StripDTO scDTO = sc;
+        var scDTO = StripBayServerCompat.ToServerSafe(sc);
         if (CanSendDTO)
         {
             LogMessageContent("StripChange", scDTO, false);
@@ -280,14 +280,15 @@ public sealed class SocketConn : IAsyncDisposable
     /// <param name="acid">Strip callsign.</param>
     public void SendStripStatus(Strip? strip, string acid)
     {
+        var dto = strip is null ? null : StripBayServerCompat.ToServerSafe(strip);
         if (CanSendDTO)
         {
-            LogMessageContent("StripStatus", strip is null ? null : (StripDTO)strip, false);
+            LogMessageContent("StripStatus", dto, false);
         }
 
-        if (CanSendDTO && strip is not null)
+        if (CanSendDTO && dto is not null)
         {
-            FireAndForget(_connection.SendAsync("StripStatus", (StripDTO)strip, acid, GetMessageMetadata()));
+            FireAndForget(_connection.SendAsync("StripStatus", dto, acid, GetMessageMetadata()));
         }
         else if (CanSendDTO)
         {
@@ -452,7 +453,7 @@ public sealed class SocketConn : IAsyncDisposable
         if (CanSendDTO)
         {
             LogMessageContent("SendPDC", text, false);
-            await _connection.InvokeAsync("SendPDC", (StripDTO)strip, text, GetMessageMetadata());
+            await _connection.InvokeAsync("SendPDC", StripBayServerCompat.ToServerSafe(strip), text, GetMessageMetadata());
         }
     }
 
@@ -464,6 +465,11 @@ public sealed class SocketConn : IAsyncDisposable
     {
         if (CanSendDTO)
         {
+            if (bayChange.BayType.HasValue)
+            {
+                bayChange.BayType = StripBayServerCompat.ToServerSafeBay(bayChange.BayType.Value);
+            }
+
             LogMessageContent("BayChange", bayChange, false);
             FireAndForget(_connection.SendAsync("BayChange", bayChange, GetMessageMetadata()));
         }
@@ -784,7 +790,7 @@ public sealed class SocketConn : IAsyncDisposable
     /// <returns>The cache data transfer object.</returns>
     private CacheDTO CreateCacheDTO()
     {
-        return new() { strips = _bayManager.StripRepository.Strips.Select(x => (StripDTO)x).ToList(), };
+        return new() { strips = _bayManager.StripRepository.Strips.Select(StripBayServerCompat.ToServerSafe).ToList(), };
     }
 
     private bool CanConnectToCurrentServer()
