@@ -185,7 +185,7 @@ public class StripController
         return requiresEvenLevel != shouldBeEven && FDR.RFL >= 3000;
     }
 
-    private (Coordinate? First, Coordinate? Last) GetLevelRulePositions()
+    private (object? First, object? Last) GetLevelRulePositions()
     {
         if (IsNzDomesticFlight())
         {
@@ -202,11 +202,13 @@ public class StripController
         return (routePositions.FirstOrDefault(), routePositions.LastOrDefault());
     }
 
-    private bool RequiresEvenLevel(Coordinate first, Coordinate last)
+    private bool RequiresEvenLevel(object first, object last)
     {
         if (IsNzDomesticFlight())
         {
-            return last.Latitude <= first.Latitude;
+            var firstCoordinates = ReadCoordinates(first);
+            var lastCoordinates = ReadCoordinates(last);
+            return lastCoordinates.Latitude <= firstCoordinates.Latitude;
         }
 
         var variation = LogicalPositions.Positions.FirstOrDefault(e => e.Name == Strip.ParentAerodrome)?.MagneticVariation ?? 0;
@@ -227,9 +229,10 @@ public class StripController
         return requiresEvenLevel ? evenDirectionRvsm.Contains(level) : oddDirectionRvsm.Contains(level);
     }
 
-    private static bool IsUsablePosition(Coordinate? position)
+    private static bool IsUsablePosition(object? position)
     {
-        return position is not null && (Math.Abs(position.Latitude) > 0.000001 || Math.Abs(position.Longitude) > 0.000001);
+        var coordinates = ReadCoordinates(position);
+        return Math.Abs(coordinates.Latitude) > 0.000001 || Math.Abs(coordinates.Longitude) > 0.000001;
     }
 
     private static double NormalizeTrack(double track)
@@ -238,10 +241,25 @@ public class StripController
         return track < 0 ? track + 360 : track;
     }
 
-    private static bool SamePosition(Coordinate first, Coordinate second)
+    private static bool SamePosition(object first, object second)
     {
-        return Math.Abs(first.Latitude - second.Latitude) < 0.000001 &&
-            Math.Abs(first.Longitude - second.Longitude) < 0.000001;
+        var firstCoordinates = ReadCoordinates(first);
+        var secondCoordinates = ReadCoordinates(second);
+        return Math.Abs(firstCoordinates.Latitude - secondCoordinates.Latitude) < 0.000001 &&
+            Math.Abs(firstCoordinates.Longitude - secondCoordinates.Longitude) < 0.000001;
+    }
+
+    private static (double Latitude, double Longitude) ReadCoordinates(object? position)
+    {
+        if (position is null)
+        {
+            return (0, 0);
+        }
+
+        var type = position.GetType();
+        var latitude = type.GetProperty("Latitude")?.GetValue(position);
+        var longitude = type.GetProperty("Longitude")?.GetValue(position);
+        return (Convert.ToDouble(latitude, CultureInfo.InvariantCulture), Convert.ToDouble(longitude, CultureInfo.InvariantCulture));
     }
 
     /// <summary>

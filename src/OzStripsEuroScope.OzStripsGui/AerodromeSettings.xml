@@ -132,7 +132,7 @@
       <Bay Name="Holding Point">
         <Type>BAY_HOLDSHORT</Type>
       </Bay>
-      <Bay Name="Runway" CDMDisplay="true">
+      <Bay Name="Runway" CDMDisplay="false">
         <Type>BAY_RUNWAY</Type>
       </Bay>
       <Bay Name="Departed">

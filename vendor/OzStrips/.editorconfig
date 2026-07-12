@@ -1,4 +1,4 @@
-﻿root = true
+root = true
 
 [*]
 charset = utf-8
@@ -7,3 +7,15 @@ insert_final_newline = true
 indent_style = space
 indent_size = 4
 trim_trailing_whitespace = true
+
+[*.{csproj,vcxproj,vcxproj.filters,proj,props,targets,config,nuspec}]
+indent_size = 2
+
+[*.{xml,stylecop,resx,ruleset}]
+indent_size = 2
+
+[*.sh]
+end_of_line = lf
+
+[*.{cmd,bat}]
+end_of_line = crlf
