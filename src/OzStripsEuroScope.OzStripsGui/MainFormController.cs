@@ -596,7 +596,7 @@ public class MainFormController : IDisposable, IStripsWindow
             // Not sure how well this will work...
             // maybe move to radar track update?
             // only send for CDM relevant aircraft?
-            if (EuroScopeFeatureFlags.SupportsCdm && strip is not null && pilot is not null && pilot.GroundSpeed > 50)
+            if (strip is not null && pilot is not null && pilot.GroundSpeed > 50)
             {
                 if (EuroScopeFeatureFlags.SupportsCdm)
                 {
