@@ -105,6 +105,9 @@
     <None Update="Strip.xml">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="OzStripsServerUrl.example.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="TerminusTTF-Bold_B.ttf">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

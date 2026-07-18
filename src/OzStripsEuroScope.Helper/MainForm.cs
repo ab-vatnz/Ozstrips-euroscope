@@ -246,34 +246,62 @@ namespace OzStripsEuroScope.Helper
 
         private void RefreshBoard()
         {
+            var relevantCount = 0;
+            string? refreshError = null;
             foreach (var panel in _bayPanels)
             {
                 panel.SuspendLayout();
-                panel.Controls.Clear();
             }
 
-            var aerodrome = _aerodromeBox.Text.Trim().ToUpperInvariant();
-            var relevant = _flights.Values
-                .Where(f => IsRelevantToAerodrome(f, aerodrome))
-                .OrderBy(f => BayIndex(f, aerodrome))
-                .ThenBy(f => f.Callsign)
-                .ToList();
-
-            foreach (var flight in relevant)
+            try
             {
-                var bay = BayIndex(flight, aerodrome);
-                _bayPanels[bay].Controls.Add(CreateStripPanel(flight, aerodrome));
-                EnsureRouteCheck(flight, aerodrome);
-            }
+                foreach (var panel in _bayPanels)
+                {
+                    panel.Controls.Clear();
+                }
 
-            foreach (var panel in _bayPanels)
+                var aerodrome = _aerodromeBox.Text.Trim().ToUpperInvariant();
+                var relevant = _flights.Values
+                    .Where(f => IsRelevantToAerodrome(f, aerodrome))
+                    .OrderBy(f => BayIndex(f, aerodrome))
+                    .ThenBy(f => f.Callsign)
+                    .ToList();
+                relevantCount = relevant.Count;
+
+                foreach (var flight in relevant)
+                {
+                    try
+                    {
+                        var bay = BayIndex(flight, aerodrome);
+                        _bayPanels[bay].Controls.Add(CreateStripPanel(flight, aerodrome));
+                        EnsureRouteCheck(flight, aerodrome);
+                    }
+                    catch (Exception ex)
+                    {
+                        refreshError = "Skipped " + flight.Callsign + ": " + ex.Message;
+                    }
+                }
+            }
+            catch (Exception ex)
             {
-                panel.ResumeLayout();
+                refreshError = "Board refresh error: " + ex.Message;
+            }
+            finally
+            {
+                foreach (var panel in _bayPanels)
+                {
+                    panel.ResumeLayout();
+                }
             }
 
-            _statusLabel.Text = _ipcClient.IsConnected
-                ? "Connected - " + relevant.Count + " strips"
-                : _statusLabel.Text;
+            if (!string.IsNullOrWhiteSpace(refreshError))
+            {
+                _statusLabel.Text = refreshError;
+            }
+            else if (_ipcClient.IsConnected)
+            {
+                _statusLabel.Text = "Connected - " + relevantCount + " strips";
+            }
         }
 
         private static bool IsRelevantToAerodrome(FlightPlanSnapshot flight, string aerodrome)

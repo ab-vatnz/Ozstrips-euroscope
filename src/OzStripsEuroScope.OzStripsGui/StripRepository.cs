@@ -161,10 +161,25 @@ public class StripRepository
                     strip.Crossing = stripDTO.crossing;
                     strip.Controller?.SetCross(false);
                     strip.Ready = stripDTO.ready;
+                    if (stripDTO.AtisAcknowledgedCode is not null)
+                    {
+                        strip.AtisAcknowledgedCode = stripDTO.AtisAcknowledgedCode;
+                    }
                     strip.DepartureChanged = stripDTO.DepartureChanged ?? false;
                     strip.OverrideStripType = stripDTO.OverrideStripType;
                     strip.PDCFlags = stripDTO.PDCFlags;
                     strip.InhibitedAlerts = stripDTO.InhibitedAlerts;
+                    if (stripDTO.WaypointEtas is not null)
+                    {
+                        for (var waypointIndex = 0; waypointIndex < 4; waypointIndex++)
+                        {
+                            strip.SetWaypointEta(
+                                waypointIndex,
+                                waypointIndex < stripDTO.WaypointEtas.Length
+                                    ? stripDTO.WaypointEtas[waypointIndex]
+                                    : string.Empty);
+                        }
+                    }
                     if (stripDTO.FreeBayX.HasValue && stripDTO.FreeBayY.HasValue)
                     {
                         strip.SetFreeBayPosition(stripDTO.FreeBayX.Value, stripDTO.FreeBayY.Value);

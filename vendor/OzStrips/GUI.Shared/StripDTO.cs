@@ -82,6 +82,12 @@ public class StripDTO
     public bool ready { get; set; }
 
     /// <summary>
+    /// Gets or sets the ATIS code acknowledged on the strip.
+    /// </summary>
+    [JsonPropertyName("atisAcknowledgedCode")]
+    public string? AtisAcknowledgedCode { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the aircraft departure has bene changed.
     /// </summary>
     public bool? DepartureChanged { get; set; }
@@ -115,6 +121,11 @@ public class StripDTO
     /// Gets or sets the free-bay y position.
     /// </summary>
     public int? FreeBayY { get; set; }
+
+    /// <summary>
+    /// Gets or sets the controller-entered UTC estimates for the next four route waypoints.
+    /// </summary>
+    public string[]? WaypointEtas { get; set; }
 
     /// <summary>
     /// Gets or sets the wake timer start time. This is local display state only.

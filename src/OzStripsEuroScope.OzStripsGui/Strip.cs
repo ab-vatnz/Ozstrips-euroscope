@@ -226,6 +226,39 @@ public sealed class Strip : IDisposable
     public bool IsVfr => string.Equals(FDR.FlightRules, "V", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Gets or sets the controller-entered UTC estimates for the next four route waypoints.
+    /// </summary>
+    public string[] WaypointEtas { get; private set; } = [string.Empty, string.Empty, string.Empty, string.Empty];
+
+    /// <summary>
+    /// Gets or sets the ATIS code acknowledged by the controller for this strip.
+    /// </summary>
+    public string AtisAcknowledgedCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the currently available ATIS code, or NIL when none has been received.
+    /// </summary>
+    public string CurrentAtisCode
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(ParentAerodrome))
+            {
+                return "NIL";
+            }
+
+            var controller = MainFormController.Instance;
+            var code = controller?.CurrentATISCode?.Trim().ToUpperInvariant() ?? string.Empty;
+            return controller?.HasCurrentATISCode == true && code.Length == 1 && char.IsLetter(code[0]) ? code : "NIL";
+        }
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the currently shown ATIS code has been acknowledged.
+    /// </summary>
+    public bool CurrentAtisAcknowledged => CurrentAtisCode != "NIL" && string.Equals(AtisAcknowledgedCode, CurrentAtisCode, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Gets or sets the current cock level.
     /// </summary>
     public int CockLevel { get; set; }
@@ -340,7 +373,6 @@ public sealed class Strip : IDisposable
     /// </summary>
     public async Task RefreshAllocatorStand()
     {
-        var stand = await StandAllocatorService.Instance.GetStandForStripAsync(this);
         if (StripType == StripType.DEPARTURE)
         {
             var lockedStand = !string.IsNullOrWhiteSpace(Gate) ? Gate : AllocatedBay;
@@ -350,16 +382,18 @@ public sealed class Strip : IDisposable
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(stand))
+            var departureStand = await StandAllocatorService.Instance.GetStandForStripAsync(this);
+            if (!string.IsNullOrWhiteSpace(departureStand))
             {
-                AllocatedBay = stand;
-                UpdateAllocatorStandDisplay(stand);
+                AllocatedBay = departureStand;
+                UpdateAllocatorStandDisplay(departureStand);
                 _ = SyncStrip();
             }
 
             return;
         }
 
+        var stand = await StandAllocatorService.Instance.GetStandForStripAsync(this);
         if (string.Equals(AllocatorStand, stand, StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -941,6 +975,77 @@ public sealed class Strip : IDisposable
     }
 
     /// <summary>
+    /// Gets a waypoint for the five-cell procedure and route display.
+    /// SID and STAR legs take priority, then the filed route provides a fallback.
+    /// </summary>
+    /// <param name="index">The zero-based displayed waypoint index.</param>
+    /// <returns>The waypoint name, or an empty string where no waypoint exists.</returns>
+    public string GetDisplayedRouteWaypoint(int index)
+    {
+        if (index is < 0 or > 4)
+        {
+            return string.Empty;
+        }
+
+        var procedure = SID;
+        var procedureAirport = StripType == StripType.ARRIVAL ? FDR.DesAirport : FDR.DepAirport;
+        var procedureWaypoints = ProcedureRouteProvider.GetWaypoints(
+            procedureAirport,
+            procedure,
+            RWY,
+            FDR.RouteNoParse ?? FDR.Route ?? string.Empty,
+            StripType == StripType.ARRIVAL);
+        if (procedureWaypoints.Count > index)
+        {
+            return procedureWaypoints[index];
+        }
+
+        var points = FDR.ParsedRoute
+            .Where(x => x.Type == FDR.ExtractedRoute.Segment.SegmentTypes.WAYPOINT &&
+                x.Intersection.Type != Airspace2.Intersection.Types.Airport &&
+                !string.IsNullOrWhiteSpace(x.Intersection.Name))
+            .Select(x => x.Intersection.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var firstWaypointIndex = points.FindIndex(x => string.Equals(x, FirstWpt, StringComparison.OrdinalIgnoreCase));
+        var displayedIndex = firstWaypointIndex >= 0 ? firstWaypointIndex + index : index;
+        return displayedIndex < points.Count ? points[displayedIndex] : string.Empty;
+    }
+
+    /// <summary>
+    /// Gets the route waypoint following the first displayed waypoint.
+    /// </summary>
+    /// <param name="index">The zero-based index after the first displayed waypoint.</param>
+    /// <returns>The waypoint name, or an empty string where no waypoint exists.</returns>
+    public string GetNextWaypoint(int index)
+    {
+        return GetDisplayedRouteWaypoint(index + 1);
+    }
+
+    /// <summary>
+    /// Gets a controller-entered UTC estimate for a route waypoint.
+    /// </summary>
+    public string GetWaypointEta(int index)
+    {
+        return index is >= 0 and < 4 ? WaypointEtas[index] : string.Empty;
+    }
+
+    /// <summary>
+    /// Updates a controller-entered UTC estimate for a route waypoint.
+    /// </summary>
+    public void SetWaypointEta(int index, string value)
+    {
+        if (index is < 0 or > 3)
+        {
+            return;
+        }
+
+        var cleanValue = new string((value ?? string.Empty).Where(char.IsDigit).ToArray());
+        WaypointEtas[index] = cleanValue.Length == 4 ? cleanValue : string.Empty;
+    }
+
+    /// <summary>
     /// Gets the EuroScope SID formatted like vaTSYS displays it.
     /// </summary>
     public string DisplaySID
@@ -1144,6 +1249,8 @@ public sealed class Strip : IDisposable
             FreeBayY = sc.FreeBayY,
             WakeTimerStartedAt = sc.WakeTimerStartedAt?.ToString(CultureInfo.InvariantCulture) ?? "\0",
             WakeTimerDurationSeconds = (int)sc.WakeTimerDuration.TotalSeconds,
+            WaypointEtas = [..sc.WaypointEtas],
+            AtisAcknowledgedCode = sc.AtisAcknowledgedCode,
         };
 
         return scDTO;
@@ -1182,6 +1289,21 @@ public sealed class Strip : IDisposable
             TakeOffTime = null;
         }
 
+        _ = SyncStrip();
+    }
+
+    /// <summary>
+    /// Toggles acknowledgement of the currently displayed ATIS code.
+    /// </summary>
+    public void ToggleAtisAcknowledgement()
+    {
+        var code = CurrentAtisCode;
+        if (code == "NIL")
+        {
+            return;
+        }
+
+        AtisAcknowledgedCode = CurrentAtisAcknowledged ? string.Empty : code;
         _ = SyncStrip();
     }
 

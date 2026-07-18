@@ -23,9 +23,7 @@ namespace MaxRumsey.OzStripsPlugin.GUI;
 [Export(typeof(IPlugin))]
 public sealed class OzStrips : IPlugin, IDisposable, ILabelPlugin
 {
-    private const string _versionUrl = "https://raw.githubusercontent.com/maxrumsey/OzStrips/master/Version.json";
     private static readonly HttpClient _httpClient = new();
-    private static readonly Version _version = new(OzStripsConfig.version);
     private readonly CustomToolStripMenuItem _ozStripsOpener;
     private readonly AerodromeManager _aerodromeManager;
     private MainForm? _gui;
@@ -73,8 +71,6 @@ public sealed class OzStrips : IPlugin, IDisposable, ILabelPlugin
         AppDomain.CurrentDomain.UnhandledException += ErrorHandler;
 
         _aerodromeManager.Initialize();
-
-        _ = CheckVersion();
 
         var pdcWatcher = new CustomToolStripMenuItem(CustomToolStripMenuItemWindowType.Main, CustomToolStripMenuItemCategory.Tools, new ToolStripMenuItem("Pending PDCs"));
 
@@ -124,49 +120,6 @@ public sealed class OzStrips : IPlugin, IDisposable, ILabelPlugin
     {
         _httpClient.Dispose();
         _gui?.Dispose();
-    }
-
-    /// <summary>
-    /// Checks the version of the plugin.
-    /// If we are running or a old verison, or the version failed to load,
-    /// it will add to VatSys error list and prompt the user to update.
-    /// </summary>
-    /// <returns>A task to monitor async operations.</returns>
-    private static async Task CheckVersion()
-    {
-        try
-        {
-            var response = await _httpClient.GetStringAsync(_versionUrl).ConfigureAwait(false);
-
-            if (string.IsNullOrWhiteSpace(response))
-            {
-                Util.LogError(new("Could not get the version information from the OzStrips server. Cannot validate if latest version."));
-                return;
-            }
-
-            var version = JsonConvert.DeserializeObject<Version>(response);
-
-            if (version is null)
-            {
-                Util.LogError(new("Could not load the version information for OzStrips."));
-                return;
-            }
-
-            if (version.Major == _version.Major && version.Minor == _version.Minor && version.Build == _version.Build)
-            {
-                return;
-            }
-
-            if (AerodromeManager.InhibitVersionCheck)
-            {
-                return;
-            }
-
-            Errors.Add(new("A new version of the plugin is available."), "OzStrips");
-        }
-        catch
-        {
-        }
     }
 
     private static async Task SendCrash()
