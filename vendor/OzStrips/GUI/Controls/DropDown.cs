@@ -207,6 +207,23 @@ public partial class DropDown : BaseForm
     }
 
     /// <summary>
+    /// Shows the UTC estimate input for one of the strip's route waypoints.
+    /// </summary>
+    public static void ShowWaypointEtaDropDown(Strip strip, int waypointIndex)
+    {
+        if (waypointIndex is < 0 or > 3)
+        {
+            return;
+        }
+
+        CreateDropDown([new(DropDownItem.DropDownItemType.FREETEXT, strip.GetWaypointEta(waypointIndex), 4)], strip.FDR.Callsign + " UTC", value =>
+        {
+            strip.SetWaypointEta(waypointIndex, value);
+            _ = strip.SyncStrip();
+        });
+    }
+
+    /// <summary>
     /// Shows a stand allocator drop down for the specified strip, if the current airport is supported.
     /// </summary>
     /// <param name="strip">Strip.</param>
@@ -221,7 +238,17 @@ public partial class DropDown : BaseForm
                 return;
             }
 
-            var standMap = options.ToDictionary(x => x.StandId.Trim().ToUpperInvariant(), x => x.StandId.Trim(), StringComparer.OrdinalIgnoreCase);
+            var standMap = options
+                .Select(x => x.StandId?.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(x => x!.ToUpperInvariant(), x => x!, StringComparer.OrdinalIgnoreCase);
+            if (standMap.Count == 0)
+            {
+                ShowGateDropDown(strip);
+                return;
+            }
+
             var items = standMap.Keys.Select(x => new DropDownItem(DropDownItem.DropDownItemType.BUTTON, x)).ToArray();
             CreateDropDown(items, strip.FDR.Callsign, s =>
             {
@@ -241,10 +268,21 @@ public partial class DropDown : BaseForm
 
     private static async Task AssignAllocatorStand(Strip strip, string standId)
     {
+        if (string.IsNullOrWhiteSpace(standId))
+        {
+            return;
+        }
+
         try
         {
             var response = await StandAllocatorService.Instance.ReassignStandAsync(strip, standId);
-            var selectedStand = string.IsNullOrWhiteSpace(response.Assignment?.StandId) ? standId : response.Assignment.StandId;
+            var assignedStand = response.Assignment?.StandId;
+            var selectedStand = standId;
+            if (!string.IsNullOrWhiteSpace(assignedStand))
+            {
+                selectedStand = assignedStand!.Trim();
+            }
+
             strip.ApplyStandAllocatorSelection(selectedStand);
             _ = strip.SyncStrip();
         }

@@ -102,7 +102,11 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             var text = GetElementText(element);
             var fontsize = element.FontSize;
 
-            var typeface = SKTypeface.FromFamilyName("Segoe UI", 700, 5, SKFontStyleSlant.Upright);
+            var typeface = SKTypeface.FromFamilyName(
+                "Segoe UI",
+                element.Value == StripElements.Values.ATIS && !_strip.CurrentAtisAcknowledged ? 400 : 700,
+                5,
+                SKFontStyleSlant.Upright);
 
             canvas.DrawRect(baseX, baseY, element.W, element.H, basepaint);
             canvas.DrawRect(baseX, baseY, element.W, element.H, elpaint);
@@ -376,6 +380,9 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Actions.SET_READY:
                 _strip.Controller.ToggleReady();
                 break;
+            case StripElements.Actions.ACK_ATIS:
+                _strip.ToggleAtisAcknowledgement();
+                break;
             case StripElements.Actions.SET_TOT:
                 _strip.TakeOff();
                 break;
@@ -449,6 +456,18 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 }
 
                 break;
+            case StripElements.Actions.MOD_WAYPOINT_1_ETA:
+                DropDown.ShowWaypointEtaDropDown(_strip, 0);
+                break;
+            case StripElements.Actions.MOD_WAYPOINT_2_ETA:
+                DropDown.ShowWaypointEtaDropDown(_strip, 1);
+                break;
+            case StripElements.Actions.MOD_WAYPOINT_3_ETA:
+                DropDown.ShowWaypointEtaDropDown(_strip, 2);
+                break;
+            case StripElements.Actions.MOD_WAYPOINT_4_ETA:
+                DropDown.ShowWaypointEtaDropDown(_strip, 3);
+                break;
         }
     }
 
@@ -488,6 +507,8 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
 
             case StripElements.Values.FRUL:
                 return _strip.FDR.FlightRules;
+            case StripElements.Values.ATIS:
+                return _strip.CurrentAtisCode;
             case StripElements.Values.PDC_INDICATOR:
                 return _strip.FDR.PDCSent || _strip.PDCFlags.HasFlag(PDCRequest.PDCFlags.SENT) ? "P" : string.Empty;
             case StripElements.Values.TYPE:
@@ -505,13 +526,14 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
             case StripElements.Values.SID:
                 return _strip.DisplaySID;
             case StripElements.Values.FIRST_WPT:
-                if (_strip.FirstWpt.Length > 5)
+                var firstWaypoint = _strip.GetDisplayedRouteWaypoint(0);
+                if (firstWaypoint.Length > 5)
                 {
-                    return _strip.FirstWpt.Substring(0, 5) + "...";
+                    return firstWaypoint.Substring(0, 5) + "...";
                 }
                 else
                 {
-                    return _strip.FirstWpt;
+                    return firstWaypoint;
                 }
 
             case StripElements.Values.RFL:
@@ -541,6 +563,23 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 {
                     return "00:00";
                 }
+
+            case StripElements.Values.WAYPOINT_1:
+                return _strip.GetDisplayedRouteWaypoint(1);
+            case StripElements.Values.WAYPOINT_1_ETA:
+                return _strip.GetWaypointEta(0);
+            case StripElements.Values.WAYPOINT_2:
+                return _strip.GetDisplayedRouteWaypoint(2);
+            case StripElements.Values.WAYPOINT_2_ETA:
+                return _strip.GetWaypointEta(1);
+            case StripElements.Values.WAYPOINT_3:
+                return _strip.GetDisplayedRouteWaypoint(3);
+            case StripElements.Values.WAYPOINT_3_ETA:
+                return _strip.GetWaypointEta(2);
+            case StripElements.Values.WAYPOINT_4:
+                return _strip.GetDisplayedRouteWaypoint(4);
+            case StripElements.Values.WAYPOINT_4_ETA:
+                return _strip.GetWaypointEta(3);
 
             default:
                 break;
@@ -658,6 +697,8 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 }
 
                 return colour;
+            case StripElements.Values.ATIS:
+                return _strip.CurrentAtisAcknowledged ? SKColors.Empty : SKColors.LightGray;
         }
 
         if (element.CockableSpecified && _strip.CockLevel == 1)
@@ -686,6 +727,8 @@ internal class StripView(Strip strip, BayRenderController bayRC) : IRenderedStri
                 break;
             case StripElements.Values.RFL:
                 return SKColors.Gray;
+            case StripElements.Values.ATIS:
+                return _strip.CurrentAtisAcknowledged ? SKColors.Black : SKColors.Gray;
         }
 
         return SKColors.Black;

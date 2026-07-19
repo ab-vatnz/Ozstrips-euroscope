@@ -50,6 +50,11 @@ internal sealed class StandAllocatorApiClient
             .ConfigureAwait(false);
         var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return new StandAllocatorStandOptionsResponse();
+        }
+
         EnsureSuccess(response, content);
 
         return JsonConvert.DeserializeObject<StandAllocatorStandOptionsResponse>(content) ?? new StandAllocatorStandOptionsResponse();
