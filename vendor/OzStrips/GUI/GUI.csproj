@@ -130,6 +130,12 @@
       </None>
       <None Update="Strip.xml">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-      </None> 
+      </None>
+      <None Update="OzStripsServerUrl.example.txt">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
     </ItemGroup>
+    <Target Name="RemoveSkiaRuntimePluginFolders" AfterTargets="Build">
+      <RemoveDir Directories="$(OutputPath)x64;$(OutputPath)x86;$(OutputPath)arm64" />
+    </Target>
 </Project>

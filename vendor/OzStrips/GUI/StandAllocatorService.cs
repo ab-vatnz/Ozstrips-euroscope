@@ -12,11 +12,13 @@ internal sealed class StandAllocatorService
 {
     private static readonly TimeSpan AirportCacheDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan ArrivalCacheDuration = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan MissingAircraftCacheDuration = TimeSpan.FromSeconds(30);
     private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
 
     private readonly StandAllocatorApiClient _client = new();
     private readonly SemaphoreSlim _airportLock = new(1, 1);
     private readonly Dictionary<string, ArrivalCacheEntry> _arrivalCache = new(KeyComparer);
+    private readonly Dictionary<string, DateTime> _missingAircraftCache = new(KeyComparer);
 
     private DateTime _airportCacheExpiresUtc;
     private HashSet<string> _supportedAirports = new(KeyComparer);
@@ -33,6 +35,12 @@ internal sealed class StandAllocatorService
         if (string.IsNullOrWhiteSpace(airport) || !await IsSupportedAirportAsync(airport).ConfigureAwait(false))
         {
             return string.Empty;
+        }
+
+        var missingKey = BuildMissingAircraftKey(airport, strip.FDR.Callsign);
+        if (IsMissingAircraftCached(missingKey))
+        {
+            return strip.AllocatorStand;
         }
 
         try
@@ -56,7 +64,16 @@ internal sealed class StandAllocatorService
             }
 
             var assignment = await _client.GetAssignmentAsync(GetApiBaseUrl(), strip.FDR.Callsign).ConfigureAwait(false);
-            return KeyComparer.Equals(assignment?.Airport, airport) ? BestStand(assignment?.StandId) : string.Empty;
+            var assignedStand = KeyComparer.Equals(assignment?.Airport, airport) ? BestStand(assignment?.StandId) : string.Empty;
+            if (string.IsNullOrWhiteSpace(assignedStand) &&
+                string.IsNullOrWhiteSpace(options.CurrentStand) &&
+                options.PreferredStands.Count == 0 &&
+                options.AllStands.Count == 0)
+            {
+                MarkMissingAircraft(missingKey);
+            }
+
+            return assignedStand;
         }
         catch (Exception ex)
         {
@@ -73,7 +90,21 @@ internal sealed class StandAllocatorService
             return [];
         }
 
+        var missingKey = BuildMissingAircraftKey(airport, strip.FDR.Callsign);
+        if (IsMissingAircraftCached(missingKey))
+        {
+            return [];
+        }
+
         var response = await _client.GetStandOptionsAsync(GetApiBaseUrl(), strip.FDR.Callsign, airport).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(response.CurrentStand) &&
+            response.PreferredStands.Count == 0 &&
+            response.AllStands.Count == 0)
+        {
+            MarkMissingAircraft(missingKey);
+            return [];
+        }
+
         var candidateOptions = response.PreferredStands.Count > 0 ? response.PreferredStands : response.AllStands;
         var options = new List<StandAllocatorStandOption>();
 
@@ -165,7 +196,7 @@ internal sealed class StandAllocatorService
         {
             if (!string.IsNullOrWhiteSpace(standId))
             {
-                return standId.Trim();
+                return standId!.Trim();
             }
         }
 
@@ -173,6 +204,38 @@ internal sealed class StandAllocatorService
     }
 
     private static string GetApiBaseUrl() => StandAllocatorApiConfiguration.GetApiBaseUrl();
+
+    private static string BuildMissingAircraftKey(string airport, string callsign)
+    {
+        return (airport ?? string.Empty).Trim().ToUpperInvariant() + "|" + (callsign ?? string.Empty).Trim().ToUpperInvariant();
+    }
+
+    private bool IsMissingAircraftCached(string key)
+    {
+        lock (_missingAircraftCache)
+        {
+            if (!_missingAircraftCache.TryGetValue(key, out var expiresUtc))
+            {
+                return false;
+            }
+
+            if (DateTime.UtcNow < expiresUtc)
+            {
+                return true;
+            }
+
+            _missingAircraftCache.Remove(key);
+            return false;
+        }
+    }
+
+    private void MarkMissingAircraft(string key)
+    {
+        lock (_missingAircraftCache)
+        {
+            _missingAircraftCache[key] = DateTime.UtcNow.Add(MissingAircraftCacheDuration);
+        }
+    }
 
     private sealed class ArrivalCacheEntry
     {

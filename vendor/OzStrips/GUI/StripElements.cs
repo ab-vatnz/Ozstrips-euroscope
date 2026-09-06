@@ -21,6 +21,7 @@ public static class StripElements
         SSR,
         TYPE,
         FRUL,
+        ATIS,
         FIRST_WPT,
         SID,
         ADES,
@@ -40,6 +41,14 @@ public static class StripElements
         DEPFREQ,
         ADEP,
         DEP_CHANGED,
+        WAYPOINT_1,
+        WAYPOINT_1_ETA,
+        WAYPOINT_2,
+        WAYPOINT_2_ETA,
+        WAYPOINT_3,
+        WAYPOINT_3_ETA,
+        WAYPOINT_4,
+        WAYPOINT_4_ETA,
         NONE,
     }
 
@@ -64,6 +73,7 @@ public static class StripElements
         COCK,
         SID_TRIGGER,
         SET_READY,
+        ACK_ATIS,
         SET_TOT,
         OPEN_PDC,
         OPEN_PM,
@@ -76,6 +86,10 @@ public static class StripElements
         INHIBIT_SSR,
         INHIBIT_READY,
         INHIBIT_DEPCHANGED,
+        MOD_WAYPOINT_1_ETA,
+        MOD_WAYPOINT_2_ETA,
+        MOD_WAYPOINT_3_ETA,
+        MOD_WAYPOINT_4_ETA,
     }
 
     public enum HoverActions
