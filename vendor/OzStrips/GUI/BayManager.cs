@@ -635,7 +635,7 @@ public class BayManager
 
         if (!serverInitiated)
         {
-            if (strip.CurrentBay >= StripBay.BAY_CLEARED)
+            if (StripBayServerCompat.ShouldCoordinateWhenMoved(strip.CurrentBay))
             {
                 strip.CoordinateStrip();
             }

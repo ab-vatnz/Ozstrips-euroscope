@@ -50,7 +50,7 @@ public sealed class SocketConn : IAsyncDisposable
     public SocketConn(BayManager bayManager, MainFormController mainForm)
     {
         _connection = new HubConnectionBuilder()
-            .WithUrl(OzStripsConfig.socketioaddr + "ozstrips/hub/v2")
+            .WithUrl(ServerEndpoint.BaseUrl + "ozstrips/hub/v2")
             .WithAutomaticReconnect()
             .Build();
 
@@ -172,26 +172,14 @@ public sealed class SocketConn : IAsyncDisposable
 
         RegisterListener("OutOfSync", async () =>
         {
-            InvokeOnGUI(async () =>
+            if (DateTime.Now - _lastDesyncResolution < TimeSpan.FromSeconds(30))
             {
-                if (DateTime.Now - _lastDesyncResolution < TimeSpan.FromSeconds(5))
-                {
-                    return;
-                }
+                return;
+            }
 
-                var res = Util.ShowQuestionBox("Client became desynchronised from server. Reconnect?");
-                if (res == DialogResult.Yes)
-                {
-                    _lastDesyncResolution = DateTime.Now;
-                    await SubscribeToAerodrome();
-                }
-                else
-                {
-                    _lastDesyncResolution = DateTime.Now;
-                    _enableAutoReconnect = false;
-                    Disconnect();
-                }
-            });
+            _lastDesyncResolution = DateTime.Now;
+            AddMessage("#Server reported desync. Resubscribing.");
+            await SubscribeToAerodrome();
         });
     }
 
@@ -256,7 +244,7 @@ public sealed class SocketConn : IAsyncDisposable
     /// <returns>Task.</returns>
     public async Task SyncSC(Strip sc)
     {
-        StripDTO scDTO = sc;
+        var scDTO = StripBayServerCompat.ToServerSafe(sc);
         if (CanSendDTO)
         {
             LogMessageContent("StripChange", scDTO, false);
@@ -271,14 +259,15 @@ public sealed class SocketConn : IAsyncDisposable
     /// <param name="acid">Strip callsign.</param>
     public void SendStripStatus(Strip? strip, string acid)
     {
+        var dto = strip is null ? null : StripBayServerCompat.ToServerSafe(strip);
         if (CanSendDTO)
         {
-            LogMessageContent("StripStatus", strip is null ? null : (StripDTO)strip, false);
+            LogMessageContent("StripStatus", dto, false);
         }
 
-        if (CanSendDTO && strip is not null)
+        if (CanSendDTO && dto is not null)
         {
-            FireAndForget(_connection.SendAsync("StripStatus", (StripDTO)strip, acid, GetMessageMetadata()));
+            FireAndForget(_connection.SendAsync("StripStatus", dto, acid, GetMessageMetadata()));
         }
         else if (CanSendDTO)
         {
@@ -376,7 +365,7 @@ public sealed class SocketConn : IAsyncDisposable
         if (CanSendDTO)
         {
             LogMessageContent("SendPDC", text, false);
-            await _connection.InvokeAsync("SendPDC", (StripDTO)strip, text, GetMessageMetadata());
+            await _connection.InvokeAsync("SendPDC", StripBayServerCompat.ToServerSafe(strip), text, GetMessageMetadata());
         }
     }
 
@@ -388,6 +377,11 @@ public sealed class SocketConn : IAsyncDisposable
     {
         if (CanSendDTO)
         {
+            if (bayChange.BayType.HasValue)
+            {
+                bayChange.BayType = StripBayServerCompat.ToServerSafeBay(bayChange.BayType.Value);
+            }
+
             LogMessageContent("BayChange", bayChange, false);
             FireAndForget(_connection.SendAsync("BayChange", bayChange, GetMessageMetadata()));
         }
@@ -457,15 +451,14 @@ public sealed class SocketConn : IAsyncDisposable
 
                 _synchronised = false;
                 var response = await _connection.InvokeAsync<AerodromeSubscriptionResponse>("SubscribeToAerodrome", connmetadata);
-                _synchronised = true;
 
-                if (response.Error is not null)
-                {
-                    throw response.Error;
-                }
-                else if (response is null)
+                if (response is null)
                 {
                     throw new ArgumentNullException("Subscription response was not included after aerodrome subscription.");
+                }
+                else if (response.Error is not null)
+                {
+                    throw response.Error;
                 }
                 else if (response.AerodromeICAO != _bayManager.AerodromeName ||
                     response.Server != Server)
@@ -486,6 +479,7 @@ public sealed class SocketConn : IAsyncDisposable
                     }
                 });
 
+                _synchronised = true;
                 _aerodromeSubscriptionRegistered = DateTime.Now;
             }
             else
@@ -496,6 +490,7 @@ public sealed class SocketConn : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            _synchronised = false;
             Util.LogError(ex);
         }
     }
@@ -622,7 +617,7 @@ public sealed class SocketConn : IAsyncDisposable
     /// <returns>Task.</returns>
     public async Task Connect()
     {
-        AddMessage("#Attempting connection " + OzStripsConfig.socketioaddr);
+        AddMessage("#Attempting connection " + ServerEndpoint.BaseUrl);
         await _connectionSemaphore.WaitAsync();
 
         // try-catch to ensure semaphore is released.
@@ -690,7 +685,7 @@ public sealed class SocketConn : IAsyncDisposable
     /// <returns>The cache data transfer object.</returns>
     private CacheDTO CreateCacheDTO()
     {
-        return new() { strips = _bayManager.StripRepository.Strips.Select(x => (StripDTO)x).ToList(), };
+        return new() { strips = _bayManager.StripRepository.Strips.Select(StripBayServerCompat.ToServerSafe).ToList(), };
     }
 
     private bool CanConnectToCurrentServer()
