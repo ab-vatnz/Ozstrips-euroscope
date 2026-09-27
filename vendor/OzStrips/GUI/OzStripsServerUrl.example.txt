@@ -1,0 +1,3 @@
+# Optional private OzStrips server override.
+# Copy this file to OzStripsServerUrl.txt and set a single URL, for example:
+# http://localhost:5153/

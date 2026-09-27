@@ -61,6 +61,11 @@ public class MainFormController : IDisposable, IStripsWindow
     public string CurrentATISCode { get; private set; } = "Z";
 
     /// <summary>
+    /// Gets a value indicating whether an ATIS code has been received for this session.
+    /// </summary>
+    public bool HasCurrentATISCode { get; private set; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="MainFormController"/> class.
     /// </summary>
     /// <param name="form">MainForm element.</param>
@@ -704,8 +709,9 @@ public class MainFormController : IDisposable, IStripsWindow
     /// <param name="code">The ATIS code.</param>
     public void SetATISCode(string code)
     {
-        CurrentATISCode = code;
-        _mainForm.ATISLabel.Text = code;
+        CurrentATISCode = (code ?? string.Empty).Trim().ToUpperInvariant();
+        HasCurrentATISCode = CurrentATISCode.Length > 0;
+        _mainForm.ATISLabel.Text = CurrentATISCode;
     }
 
     /// <summary>
