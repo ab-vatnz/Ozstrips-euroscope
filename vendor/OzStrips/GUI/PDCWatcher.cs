@@ -23,7 +23,7 @@ public partial class PDCWatcher : BaseForm
     {
         InitializeComponent();
         _connection = new HubConnectionBuilder()
-            .WithUrl(OzStripsConfig.socketioaddr + "PDCHub")
+            .WithUrl(ServerEndpoint.BaseUrl + "PDCHub")
             .WithAutomaticReconnect()
             .Build();
 
