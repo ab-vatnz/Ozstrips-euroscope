@@ -2,7 +2,7 @@
   <!--
     NZ merged strip layout for OzStrips.
 
-    OzStrips supports one 420x60 live layout for every strip state. This version
+    OzStrips supports one 420x84 live layout for every strip state. This version
     keeps the real-strip feel by using a large open taxi/free-text area instead
     of a grid of small boxes.
   -->
@@ -91,7 +91,7 @@
     <FontSize>11</FontSize>
   </StripElement>
 
-  <!-- Main free-text taxi/route area, then SID and first waypoint below. -->
+  <!-- Restore the broad original taxi/free-text block and its SID presentation. -->
   <StripElement crossable="true">
     <X>185</X>
     <Y>0</Y>
@@ -105,7 +105,7 @@
   <StripElement>
     <X>185</X>
     <Y>36</Y>
-    <W>85</W>
+    <W>145</W>
     <H>24</H>
     <Value>SID</Value>
     <LeftClick>MOD_SID</LeftClick>
@@ -114,24 +114,11 @@
     <MiddleClick>INHIBIT_SID</MiddleClick>
     <FontSize>18</FontSize>
   </StripElement>
-  <StripElement>
-    <X>270</X>
-    <Y>36</Y>
-    <W>60</W>
-    <H>24</H>
-    <Value>FIRST_WPT</Value>
-    <LeftClick>OPEN_FDR</LeftClick>
-    <RightClick>OPEN_REROUTE</RightClick>
-    <MiddleClick>INHIBIT_ROUTE</MiddleClick>
-    <Hover>ROUTE_WARNING</Hover>
-    <FontSize>13</FontSize>
-  </StripElement>
-
-  <!-- Right side: ready flag, stand box, then an I/V info box and a time box. -->
+  <!-- Ready is a single large square. Stand sits beneath the callsign. -->
   <StripElement>
     <X>330</X>
     <Y>0</Y>
-    <W>30</W>
+    <W>60</W>
     <H>60</H>
     <Value>READY</Value>
     <LeftClick>SET_READY</LeftClick>
@@ -139,23 +126,39 @@
     <FontSize>11</FontSize>
   </StripElement>
   <StripElement>
-    <X>360</X>
-    <Y>0</Y>
-    <W>30</W>
-    <H>60</H>
+    <X>0</X>
+    <Y>60</Y>
+    <W>140</W>
+    <H>24</H>
     <Value>STAND</Value>
     <LeftClick>MOD_STD</LeftClick>
     <RightClick>MOD_ALLOCATOR_STD</RightClick>
-    <FontSize>15</FontSize>
+    <FontSize>14</FontSize>
   </StripElement>
+
+  <!-- Five route waypoints: first route point plus the following four. -->
+  <StripElement><X>140</X><Y>60</Y><W>56</W><H>24</H><Value>FIRST_WPT</Value><LeftClick>OPEN_FDR</LeftClick><RightClick>OPEN_REROUTE</RightClick><MiddleClick>INHIBIT_ROUTE</MiddleClick><Hover>ROUTE_WARNING</Hover><FontSize>11</FontSize></StripElement>
+  <StripElement><X>196</X><Y>60</Y><W>56</W><H>24</H><Value>WAYPOINT_1</Value><FontSize>11</FontSize></StripElement>
+  <StripElement><X>252</X><Y>60</Y><W>56</W><H>24</H><Value>WAYPOINT_2</Value><FontSize>11</FontSize></StripElement>
+  <StripElement><X>308</X><Y>60</Y><W>56</W><H>24</H><Value>WAYPOINT_3</Value><FontSize>11</FontSize></StripElement>
+  <StripElement><X>364</X><Y>60</Y><W>56</W><H>24</H><Value>WAYPOINT_4</Value><FontSize>11</FontSize></StripElement>
   <StripElement cockable="true">
+    <X>0</X>
+    <Y>44</Y>
+    <W>32</W>
+    <H>16</H>
+    <Value>FRUL</Value>
+    <BorderColour>#00000000</BorderColour>
+    <FontSize>10</FontSize>
+  </StripElement>
+  <StripElement>
     <X>390</X>
     <Y>0</Y>
     <W>30</W>
     <H>30</H>
-    <Value>FRUL</Value>
-    <LeftClick>SHOW_ROUTE</LeftClick>
-    <FontSize>10</FontSize>
+    <Value>ATIS</Value>
+    <LeftClick>ACK_ATIS</LeftClick>
+    <FontSize>14</FontSize>
   </StripElement>
   <StripElement cockable="true">
     <X>390</X>
